@@ -1,10 +1,14 @@
 from argparse import Namespace
 import torch
 from torch import nn
-import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from analysis import Logger, AverageMeter, accuracy
+import numpy as np
 import os
+import sys
+
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from losses import ProtoModLoss
 from models.concept_mapper import ProtoMod
@@ -79,9 +83,110 @@ def create_criterions(model: nn.Module, args: Namespace):
     ), "Model does not have a concept mapper for ProtoModLoss"
 
     cross_entropy = nn.CrossEntropyLoss()
-    protomod_criterion = ProtoModLoss(model.concept_mapper, args)
+    protomod_criterion = ProtoModLoss(model.concept_mapper, model.backbone.output_map_size, args)
 
     return cross_entropy, protomod_criterion
+
+
+class Logger(object):
+    """
+    Log results to a file and flush() to view instant updates
+    """
+
+    def __init__(self, fpath=None):
+        self.console = sys.stdout
+        self.file = None
+        if fpath is not None:
+            self.file = open(fpath, 'w')
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, *args):
+        self.close()
+
+    def write(self, msg):
+        self.console.write(msg)
+        if self.file is not None:
+            self.file.write(msg)
+
+    def flush(self):
+        self.console.flush()
+        if self.file is not None:
+            self.file.flush()
+            os.fsync(self.file.fileno())
+
+    def close(self):
+        self.console.close()
+        if self.file is not None:
+            self.file.close()
+
+
+class AverageMeter(object):
+    """
+    Computes and stores the average and current value
+    """
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+    
+class LossMeter(object):
+    """
+    Computes and stores the average and current value for multiple losses.
+    """
+
+    def __init__(self, loss_labels):
+        self.loss_labels = loss_labels
+        self.n_losses = len(loss_labels)
+        self.reset()
+
+    def reset(self):
+        self.val = np.array([0. for _ in range(self.n_losses)])
+        self.avg = np.array([0. for _ in range(self.n_losses)])
+        self.sum = np.array([0. for _ in range(self.n_losses)])
+        self.count = 0
+
+    def update(self, val, n=1):
+        assert len(val) == len(self.loss_labels), "Loss labels and loss values must be of same length."
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+def accuracy(output, target, topk=(1,)):
+    """
+    Computes the precision@k for the specified values of k
+    output and target are Torch tensors
+    """
+    maxk = max(topk)
+    batch_size = target.size(0)
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    temp = target.view(1, -1).expand_as(pred)
+    temp = temp.to("cuda" if torch.cuda.is_available() else "cpu")
+    correct = pred.eq(temp)
+
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    return res
 
 
 def compute_accuracies(

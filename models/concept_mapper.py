@@ -3,7 +3,11 @@ import torch.nn.functional as F
 from torch import nn
 import torch
 
-from ProtoCBM.utils.mappings import NUM_ATTRIBUTES
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+from utils.mappings import NUM_ATTRIBUTES
 
 
 class ProtoMod(nn.Module):
@@ -14,7 +18,6 @@ class ProtoMod(nn.Module):
         self.prototype_vectors = nn.Parameter(
             2e-4 * torch.rand(prototype_shape), requires_grad=True
         )
-
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):

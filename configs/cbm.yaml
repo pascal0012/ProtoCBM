@@ -18,6 +18,11 @@ scheduler_step: 1000
 weight_decay: 0.00004
 use_aux: true
 
+backbone: inception
+backbone_pretrained: true
+backbone_freeze: true
+expand_dim: 0
+
 # CBM specifics
 normalize_loss: true
 loss_attr_weight: 1.0

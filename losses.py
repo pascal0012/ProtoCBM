@@ -4,25 +4,29 @@ import torch
 import torch.nn.functional as F
 from torch import nn, zeros_like
 
-from ProtoCBM.utils.mappings import MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
-from ProtoCBM.utils.index_translation import map_attribute_ids_from_cub_to_cbm
-from ProtoCBM.utils.protomod_utils import add_glasso, get_middle_graph
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+from utils.mappings import MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
+from utils.index_translation import map_attribute_ids_from_cub_to_cbm
+from utils.protomod_utils import add_glasso, get_middle_graph
 from models.concept_mapper import ProtoMod
 
 
 class ProtoModLoss(nn.Module):
-    def __init__(self, protomod: ProtoMod, args: Namespace):
+    def __init__(self, protomod: ProtoMod, kernel_size: int, args: Namespace):
         super(ProtoModLoss, self).__init__()
 
         self.protomod = protomod
         self.reg_weights = {
-            "attribute_reg": args.proto_weight_attribute_reg,
-            "cpt": args.proto_weight_cpt,
-            "decorrelation": args.proto_weight_decorrelation,
+            "attribute_reg": args.loss_weight_attribute_reg,
+            "cpt": args.loss_weight_map_compactness,
+            "decorrelation": args.loss_weight_attribute_decorrelation,
         }
-        self.use_groups = args.proto_use_groups
+        self.use_groups = args.loss_decorrelation_per_group
 
-        self.middle_graph = get_middle_graph(protomod.kernel_size)
+        self.middle_graph = get_middle_graph(kernel_size)
 
         # To calculate regularization among groups
         self.groups = PART_SEG_GROUPS

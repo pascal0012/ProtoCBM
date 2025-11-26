@@ -13,6 +13,7 @@ from cub.dataset import CUBDatasetPartSegmentations
 from cub.config import BASE_DIR, N_ATTRIBUTES
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics, create_mapping_attributes_to_part_seg_group
 from localization.visualise import visualise_part_segmentations
+from models.apn_baseline import create_apn_baseline
 from saliency.saliency import get_saliency_map_and_prediction
 from utils.eval_utils import get_eval_transform_for_model
 from utils.train_utils import prepare_model, model_by_mode

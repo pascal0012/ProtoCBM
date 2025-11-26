@@ -2,10 +2,16 @@ from argparse import Namespace
 
 from torch import nn
 
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 from models.backbones import Inception3
 from models.components import MLP
 from models.concept_mapper import CBMMapper, ProtoMod
 from models.model_connector import ModelConnector
+
+from cub.config import N_CLASSES
 
 
 def ModelXtoC(args: Namespace):
@@ -15,7 +21,7 @@ def ModelXtoC(args: Namespace):
 
     classifier = MLP(
         input_dim=args.n_attributes,
-        num_classes=args.num_classes,
+        num_classes=N_CLASSES,
         expand_dim=args.expand_dim,
     )
     return ModelConnector(
@@ -25,7 +31,7 @@ def ModelXtoC(args: Namespace):
 def ModelCtoY(args: Namespace):
     classifier = MLP(
         input_dim=args.n_attributes,
-        num_classes=args.num_classes,
+        num_classes=N_CLASSES,
         expand_dim=args.expand_dim,
     )
     
@@ -39,7 +45,7 @@ def ModelXtoCtoY(args: Namespace):
 
     classifier = MLP(
         input_dim=args.n_attributes,
-        num_classes=args.num_classes,
+        num_classes=N_CLASSES,
         expand_dim=args.expand_dim,
     )
     return ModelConnector(
@@ -52,7 +58,7 @@ def ModelXtoY(args: Namespace):
 
     classifier = MLP(
         input_dim=backbone.final_channel_dim,
-        num_classes=args.num_classes,
+        num_classes=N_CLASSES,
         expand_dim=args.expand_dim,
     )
     return ModelConnector(

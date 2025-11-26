@@ -4,7 +4,11 @@ import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
 from torch.nn import Parameter
 
-from components import BasicConv2d, FC, InceptionA, InceptionB, InceptionC, InceptionD, InceptionE
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+from models.components import BasicConv2d, FC, InceptionA, InceptionB, InceptionC, InceptionD, InceptionE
 
 
 BACKBONE_URLS = {
@@ -29,6 +33,10 @@ class Inception3(nn.Module):
         """
         super(Inception3, self).__init__()
 
+        self.final_channel_dim = 2048
+        self.image_size = 299
+        self.output_map_size = 8
+
         self.aux_logits = aux_logits
         self.n_attributes = n_attributes
         self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
@@ -51,8 +59,6 @@ class Inception3(nn.Module):
                 n_attributes=self.n_attributes,
                 expand_dim=expand_dim,
             )
-        self.final_channel_dim = 2048
-        self.image_size = 299
         self.Mixed_7a = InceptionD(768)
         self.Mixed_7b = InceptionE(1280)
         self.Mixed_7c = InceptionE(self.final_channel_dim)
@@ -73,7 +79,7 @@ class Inception3(nn.Module):
 
         # Loading in model, if pretrained
         if pretrained:
-            self.load_partial_state_dict(model_zoo.load_url(BACKBONE_URLS["inception_v3_google"]))
+            self.load_partial_state_dict(model_zoo.load_url(BACKBONE_URLS["inception_v3"]))
             if freeze:  # only finetune fc layer
                 for name, param in self.named_parameters():
                     if "fc" not in name: 
@@ -153,14 +159,4 @@ class InceptionAux(nn.Module):
         # N x 768 x 5 x 5
         x = self.conv0(x)
         # N x 128 x 5 x 5
-        x = self.conv1(x)
-        # N x 768 x 1 x 1
-        # Adaptive average pooling
-        x = F.adaptive_avg_pool2d(x, (1, 1))
-        # N x 768 x 1 x 1
-        x = x.view(x.size(0), -1)
-        # N x 768
-        out = []
-        for fc in self.all_fc:
-            out.append(fc(x))
-        return out
+        return self.conv1(x)

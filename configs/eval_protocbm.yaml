@@ -15,3 +15,8 @@ seed: 1
 batch_size: 16
 use_aux: false
 
+backbone: inception
+backbone_pretrained: true
+backbone_freeze: true
+expand_dim: 0
+

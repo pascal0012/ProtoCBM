@@ -3,6 +3,10 @@ from typing import List
 import torch
 import torch.nn.functional as F
 
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 from utils.mappings import PART_SEG_GROUPS
 from utils.index_translation import map_attribute_ids_to_part_seg_group_id, get_attribute_names
 

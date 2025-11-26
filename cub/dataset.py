@@ -1,19 +1,21 @@
 """
 General utils for training, evaluation and data loading
 """
-import os
 import pickle
 from pathlib import Path
-from typing import Literal, Union
+from typing import Literal
 
-import numpy as np
 import torch
 import torchvision.transforms as transforms
-from APN.apn_consts import PART_SEG_GROUPS
 from PIL import Image
-from torch.utils.data import BatchSampler, DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset
 
-from CUB.config import BASE_DIR, N_ATTRIBUTES
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+from utils.mappings import PART_SEG_GROUPS
+from cub.config import BASE_DIR, N_ATTRIBUTES
 
 
 class CUBDataset(Dataset):
@@ -23,11 +25,8 @@ class CUBDataset(Dataset):
 
     def __init__(self, 
         pkl_file_paths: list[str], 
-        use_attr: bool, 
         no_img: bool, 
-        uncertain_label: bool, 
         image_dir: str, 
-        n_class_attr: int, 
         transform=None
     ):
         """
@@ -37,11 +36,8 @@ class CUBDataset(Dataset):
 
         Arguments:
             pkl_file_paths: list of full path to all the pkl data
-            use_attr: whether to load the attributes (e.g. False for simple finetune)
             no_img: whether to load the images (e.g. False for A -> Y model)
-            uncertain_label: if True, use 'uncertain_attribute_label' field (i.e. label weighted by uncertainty score, e.g. 1 & 3(probably) -> 0.75)
             image_dir: default = 'images'. Will be append to the parent dir
-            n_class_attr: number of classes to predict for each attribute. If 3, then make a separate class for not visible
             transform: whether to apply any special transformation. Default = None, i.e. use standard ImageNet preprocessing
         """
         self.data = []
@@ -56,11 +52,8 @@ class CUBDataset(Dataset):
             self.data.extend(pickle.load(open(file_path, 'rb')))
         
         self.transform = transform
-        self.use_attr = use_attr
         self.no_img = no_img
-        self.uncertain_label = uncertain_label
         self.image_dir = image_dir
-        self.n_class_attr = n_class_attr
 
     def __len__(self):
         return len(self.data)
@@ -79,30 +72,19 @@ class CUBDataset(Dataset):
 
         # load the image using correct path
         path_parts = img_path.split('/')
-        cub_index = path_parts.index("CUB_200_2011")
-        img_source_path = '/'.join(path_parts[cub_index:])
+        cub_index = path_parts.index("images")
+        img_source_path = os.path.join(self.image_dir , "/".join(path_parts[cub_index+1:]))
         img = Image.open(img_source_path).convert('RGB')
     
         class_label = img_data['class_label']
         if self.transform:
             img = self.transform(img)
 
-        if self.use_attr:
-            if self.uncertain_label:
-                attr_label = img_data['uncertain_attribute_label']
-            else:
-                attr_label = img_data['attribute_label']
-            if self.no_img:
-                if self.n_class_attr == 3:
-                    one_hot_attr_label = np.zeros((N_ATTRIBUTES, self.n_class_attr))
-                    one_hot_attr_label[np.arange(N_ATTRIBUTES), attr_label] = 1
-                    return one_hot_attr_label, class_label
-                else:
-                    return attr_label, class_label
-            else:
-                return img, class_label, attr_label
+        attr_label = img_data['attribute_label']
+        if self.no_img:
+            return attr_label, class_label
         else:
-            return img, class_label
+            return img, class_label, attr_label
 
 
 class CUBDatasetPartSegmentations(Dataset):
@@ -110,18 +92,16 @@ class CUBDatasetPartSegmentations(Dataset):
     Returns a compatible Torch Dataset object customized for the CUB dataset
     """
 
-    def __init__(self, test_pkl_path, use_attr, image_dir, part_seg_dir, resol, transform):
+    def __init__(self, test_pkl_path, image_dir, part_seg_dir, resol, transform):
         """
         Arguments:
         test_pkl_path: full path to test pkl
-        use_attr: whether to load the attributes (e.g. False for simple finetune)
         image_dir: default = 'images'. Will be append to the parent dir
         part_seg_dir: Path to part segmentation directory
         transform: whether to apply any special transformation. Default = None, i.e. use standard ImageNet preprocessing
         """
         self.data = []
         assert "test" in test_pkl_path
-        assert use_attr
         self.data = pickle.load(open(test_pkl_path, 'rb'))
 
         # Filter data to remove all classes for which no part segmentations exist (--> class_label > 70), +1 as it is zero-indexed
@@ -157,17 +137,10 @@ class CUBDatasetPartSegmentations(Dataset):
         img_path = img_data['img_path']
         
         # Trim unnecessary paths
-        idx = img_path.split('/').index('CUB_200_2011')
-        if self.image_dir != 'images':
-            if "images" in self.image_dir:
-                img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+2:])
-            else:
-                img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+1:])
-                img_path = img_path.replace('images/', '')
-        else:
-            img_path = '/'.join(img_path.split('/')[idx:])
-        img = Image.open(img_path).convert('RGB')
-        img = self.transform(img)
+        path_parts = img_path.split('/')
+        cub_index = path_parts.index("images")
+        img_source_path = os.path.join(self.image_dir , "/".join(path_parts[cub_index+1:]))
+        img = Image.open(img_source_path).convert('RGB')
 
         # Get the class number, e.g. 002 for Laysan_Albatross, strip initial numbers, also get img name w/out extension
         class_nr = str(int(img_path.split("/")[-2][:3]))
@@ -205,58 +178,15 @@ class CUBDatasetPartSegmentations(Dataset):
         return img, class_label, attr_label, part_seg_masks
 
 
-class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
-    """Samples elements randomly from a given list of indices for imbalanced dataset
-    Arguments:
-        indices (list, optional): a list of indices
-        num_samples (int, optional): number of samples to draw
-    """
-
-    def __init__(self, dataset, indices=None):
-        # if indices is not provided,
-        # all elements in the dataset will be considered
-        self.indices = list(range(len(dataset))) \
-            if indices is None else indices
-
-        # if num_samples is not provided,
-        # draw `len(indices)` samples in each iteration
-        self.num_samples = len(self.indices)
-
-        # distribution of classes in the dataset
-        label_to_count = {}
-        for idx in self.indices:
-            label = self._get_label(dataset, idx)
-            if label in label_to_count:
-                label_to_count[label] += 1
-            else:
-                label_to_count[label] = 1
-
-        # weight for each sample
-        weights = [1.0 / label_to_count[self._get_label(dataset, idx)]
-                   for idx in self.indices]
-        self.weights = torch.DoubleTensor(weights)
-
-    def _get_label(self, dataset, idx):  # Note: for single attribute dataset
-        return dataset.data[idx]['attribute_label'][0]
-
-    def __iter__(self):
-        idx = (self.indices[i] for i in torch.multinomial(
-            self.weights, self.num_samples, replacement=True))
-        return idx
-
-    def __len__(self):
-        return self.num_samples
-    
-
 # TODO: load pkl from path + corresponding file name
-def load_data(data_dir, phase: Literal["train", "val", "test"], use_attr, no_img, batch_size, uncertain_label=False, n_class_attr=2, image_dir='images', resampling=False, resol=299):
+def load_data(args, split: Literal["train", "val", "test"], resol=299):
     """
     Note: Inception needs (299,299,3) images with inputs scaled between -1 and 1
     Loads data with transformations applied, and upsample the minority class if there is class imbalance and weighted loss is not used
     NOTE: resampling is customized for first attribute only, so change sampler.py if necessary
     """
     # TODO: ONLY TEMP FIX
-    pkl_paths = [os.path.join(BASE_DIR, data_dir, f"{phase}.pkl")]
+    pkl_paths = [os.path.join(BASE_DIR, args.data_dir, f"{split}.pkl")]
     
     resized_resol = int(resol * 256/224)
     is_training = any(['train.pkl' in f for f in pkl_paths])
@@ -280,32 +210,23 @@ def load_data(data_dir, phase: Literal["train", "val", "test"], use_attr, no_img
             #transforms.Normalize(mean = [ 0.485, 0.456, 0.406 ], std = [ 0.229, 0.224, 0.225 ]),
             ])
 
-    dataset = CUBDataset(pkl_paths, use_attr, no_img, uncertain_label, image_dir, n_class_attr, transform)
+    dataset = CUBDataset(pkl_paths, args.mode=="CY", args.image_dir, transform)
     if is_training:
         drop_last = True
         shuffle = True
     else:
         drop_last = False
         shuffle = False
-    if resampling:
-        sampler = BatchSampler(ImbalancedDatasetSampler(dataset), batch_size=batch_size, drop_last=drop_last)
-        loader = DataLoader(
-            dataset, 
-            batch_sampler=sampler,
-            num_workers=4,  # Multi-process data loading
-            pin_memory=True,  # Faster GPU transfer
-            persistent_workers=True,  # Keep workers alive between epochs
-        )
-    else:
-        loader = DataLoader(
-            dataset, 
-            batch_size=batch_size, 
-            shuffle=shuffle, 
-            drop_last=drop_last,
-            num_workers=4,  # Multi-process data loading
-            pin_memory=True,  # Faster GPU transfer
-            persistent_workers=True,  # Keep workers alive between epochs
-        )
+
+    loader = DataLoader(
+        dataset, 
+        batch_size=args.batch_size, 
+        shuffle=shuffle, 
+        drop_last=drop_last,
+        num_workers=4,  # Multi-process data loading
+        pin_memory=True,  # Faster GPU transfer
+        persistent_workers=True,  # Keep workers alive between epochs
+    )
     return loader
 
 def find_class_imbalance(pkl_file, multiple_attr=False, attr_idx=-1):

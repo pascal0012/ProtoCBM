@@ -7,9 +7,7 @@ from datetime import datetime
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 import yaml
-from analysis import AverageMeter, LossMeter, accuracy, binary_accuracy
 from torch import nn
 
 from cub.config import LR_DECAY_SIZE, MIN_LR
@@ -22,6 +20,8 @@ from utils.train_utils import (
     model_by_mode,
     optimizer_and_scheduler_by_name,
     prepare_model,
+    AverageMeter,
+    LossMeter,
 )
 
 # TODO
@@ -126,26 +126,8 @@ def train(model: nn.Module, args: Namespace) -> float:
 
     # TODO: Add checkpoints
     # TODO: Distinguish mode
-    train_loader = load_data(
-        args.data_dir,
-        "train",
-        args.use_attr,
-        args.no_img,
-        args.batch_size,
-        args.uncertain_labels,
-        image_dir=args.image_dir,
-        n_class_attr=args.n_class_attr,
-        resampling=args.resampling,
-    )
-    val_loader = load_data(
-        args.data_dir,
-        "val",
-        args.use_attr,
-        args.no_img,
-        args.batch_size,
-        image_dir=args.image_dir,
-        n_class_attr=args.n_class_attr,
-    )
+    train_loader = load_data(args, "train")
+    val_loader =  load_data(args, "val")
 
     cross_entropy, protomod_criterion = create_criterions(model, args)
 
