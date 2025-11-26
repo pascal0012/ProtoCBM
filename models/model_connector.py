@@ -25,9 +25,10 @@ class ModelConnector(nn.Module):
         self.use_aux = use_aux
         self.concept_activation = concept_activation
 
-    def forward_features(self, features):
+    def forward_features(self, features, return_maps=True):
+        maps=None
         if self.concept_mapper is not None:
-            features = self.concept_mapper(features)
+            features, maps = self.concept_mapper(features)
 
         if self.concept_activation == "sigmoid":
             features = F.sigmoid(features)
@@ -37,13 +38,15 @@ class ModelConnector(nn.Module):
         if self.classifier is not None:
             features = self.classifier(features)
 
+        if return_maps:
+            return features, maps
         return features
 
     def forward(self, x):
         if self.use_aux:
             assert self.backbone is not None, "Backbone must be defined when using auxiliary outputs."
             output, aux_output = self.backbone(x)
-            return self.forward_features(output), self.forward_features(aux_output)
+            return self.forward_features(output), self.forward_features(aux_output, return_maps=False)
         else:
             if self.backbone is not None:
                 x = self.backbone(x)
