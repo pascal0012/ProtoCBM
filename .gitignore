@@ -3,6 +3,9 @@ __pycache__/
 data/
 output/
 logs/
+
+# gitignore for uv (melih)
 .venv
 pyproject.toml
 .python-version
+uv.lock
