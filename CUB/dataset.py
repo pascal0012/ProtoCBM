@@ -2,6 +2,7 @@
 General utils for training, evaluation and data loading
 """
 import os
+from typing import Literal
 import torch
 import pickle
 import numpy as np
@@ -234,13 +235,16 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         return self.num_samples
     
 
-
-def load_data(pkl_paths, use_attr, no_img, batch_size, uncertain_label=False, n_class_attr=2, image_dir='images', resampling=False, resol=299):
+# TODO: load pkl from path + corresponding file name
+def load_data(data_dir, phase: Literal["train", "val", "test"], use_attr, no_img, batch_size, uncertain_label=False, n_class_attr=2, image_dir='images', resampling=False, resol=299):
     """
     Note: Inception needs (299,299,3) images with inputs scaled between -1 and 1
     Loads data with transformations applied, and upsample the minority class if there is class imbalance and weighted loss is not used
     NOTE: resampling is customized for first attribute only, so change sampler.py if necessary
     """
+    # TODO: ONLY TEMP FIX
+    pkl_paths = [os.path.join(BASE_DIR, data_dir, f"{phase}.pkl")]
+    
     resized_resol = int(resol * 256/224)
     is_training = any(['train.pkl' in f for f in pkl_paths])
     if is_training:
