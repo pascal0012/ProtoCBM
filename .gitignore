@@ -2,6 +2,8 @@
 __pycache__/
 data/
 output/
+outputs/
+outputs/*
 logs/
 
 # gitignore for uv (melih)
