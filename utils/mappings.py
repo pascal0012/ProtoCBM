@@ -58,6 +58,25 @@ MAP_PART_SEG_GROUPS_TO_CUB_GROUPS = {
 }
 
 
+MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS = {
+    'left eye': [100, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148],
+    'right eye': [100, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148],
+    'nape': [182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196],
+    'back': MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS['back'],
+    'belly': MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS['belly'],
+    'beak': [0, 1, 2, 3, 4, 5, 6, 7, 8, 149, 150, 151, 278, 279, 280, 281, 282, 283, 284, 285, 286, 287, 288, 289, 290, 291, 292], 
+    'breast': [54, 55, 56, 57, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119],
+    'throat': [120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 94, 95, 96, 97, 98, 99, 101, 102, 103, 104],
+    'crown': [293, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307],
+    'forehead': [152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166],
+    'tail': MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS['tail'],
+    'left wing': MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS['wing'],
+    'right wing': MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS['wing'],
+    'left leg': MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS['leg'],
+    'right leg': MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS['leg'],
+}
+
+
 """
 
 OLD
