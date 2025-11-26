@@ -22,6 +22,15 @@ def ModelXtoC(args: Namespace):
         backbone, concept_mapper, classifier, args.use_aux, args.concept_activation
     )
 
+def ModelCtoY(args: Namespace):
+    classifier = MLP(
+        input_dim=args.n_attributes,
+        num_classes=args.num_classes,
+        expand_dim=args.expand_dim,
+    )
+    
+    return classifier
+
 
 def ModelXtoCtoY(args: Namespace):
     backbone = backbone_by_name(args)

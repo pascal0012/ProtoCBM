@@ -41,10 +41,12 @@ class ModelConnector(nn.Module):
 
     def forward(self, x):
         if self.use_aux:
+            assert self.backbone is not None, "Backbone must be defined when using auxiliary outputs."
             output, aux_output = self.backbone(x)
 
             return self.forward_features(output), self.forward_features(aux_output)
         else:
-            output = self.backbone(x)
+            if self.backbone is not None:
+                x = self.backbone(x)
 
-            return self.forward_features(output)
+            return self.forward_features(x)
