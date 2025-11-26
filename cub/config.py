@@ -1,4 +1,3 @@
-
 # General
 BASE_DIR = ''
 N_ATTRIBUTES = 312

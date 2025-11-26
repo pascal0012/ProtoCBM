@@ -11,8 +11,8 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 
-from CUB.dataset import CUBDatasetPartSegmentations
-from CUB.config import BASE_DIR, N_ATTRIBUTES
+from cub.dataset import CUBDatasetPartSegmentations
+from cub.config import BASE_DIR, N_ATTRIBUTES
 from saliency.saliency import get_saliency_map_and_prediction
 from localization.part_seg_iou import compute_IoU_to_seg_masks
 from utils.eval_utils import get_eval_transform_for_model
