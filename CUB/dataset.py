@@ -77,23 +77,12 @@ class CUBDataset(Dataset):
         img_data = self.data[idx]
         img_path = img_data['img_path']
 
-        # Trim unnecessary paths
-        img_path = Path(img_path)
+        # load the image using correct path
+        path_parts = img_path.split('/')
+        cub_index = path_parts.index("CUB_200_2011")
+        img_source_path = '/'.join(path_parts[cub_index:])
+        img = Image.open(img_source_path).convert('RGB')
     
-        idx = img_path.split('/').index('CUB_200_2011')
-        if self.image_dir != 'images':
-            img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+1:])
-            img_path = img_path.replace('images/', '')
-            if "images" in self.image_dir:
-                img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+2:])
-            else:
-                img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+1:])
-                img_path = img_path.replace('images/', '')
-        else:
-            img_path = '/'.join(img_path.split('/')[idx:])
-        img = Image.open(img_path).convert('RGB')
-            
-       
         class_label = img_data['class_label']
         if self.transform:
             img = self.transform(img)
