@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 
 from utils.mappings import PART_SEG_GROUPS
+from utils.index_translation import map_attribute_ids_to_part_seg_group_id, get_attribute_names
 
 
 def compute_soft_iou(att: torch.Tensor, gt: torch.Tensor, eps = 1e-7):
@@ -81,7 +82,36 @@ def get_presence_mask(gt: torch.Tensor):
     return gt.view(gt.size(0), gt.size(1), -1).any(dim=2)
 
 
-def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.Tensor, map_attr_id_to_part_seg_group: dict, hard_iou=True):
+def create_mapping_attributes_to_part_seg_group(image_dir, device):
+    """
+        Creates a mapping tensor from each attribute ID in range [0, n_attributes) to its respective part segmentation group,
+        as defined in utils/mappings.py and utils/index_translation.py. 
+        
+        IMPORTANT: For any attributes that do NOT have a matching part group segmentation (e.g. "has_shape", all defined in utils
+        as mentioned above), it will POP it from the mapping tensor and names of attributes.
+        
+        Thus, the names of the REMAINING and thus USED attributes is returned, as well.
+
+        Args:
+            image_dir: The path to the data containing the images
+            device: The device we are on
+        Returns:
+            map_attr_id_to_part_seg_group: The mapping tensor of shape [A_hat], where A_hat = #num_kept_attributes, its respective value is the part seg group IDX
+            attribute_names: The names of kept attributes
+    """
+    # This is our final tensor that maps each attribute by its id in the attention map to the respective part seg group
+    map_attr_id_to_part_seg_group, unmatched_attr_id_mask = map_attribute_ids_to_part_seg_group_id()
+    map_attr_id_to_part_seg_group = map_attr_id_to_part_seg_group.to(device=device)
+    unmatched_attr_id_mask = unmatched_attr_id_mask.to(device=device)
+
+    # Get attribute names, remove unmatched attributes from it
+    attribute_names = get_attribute_names("/".join(image_dir.split("/")[:-1]), used_attributes_only=True)
+    unmatched_mask_list = unmatched_attr_id_mask.cpu().detach().tolist()
+    attribute_names = [name for name, keep in zip(attribute_names, unmatched_mask_list) if keep]
+    return map_attr_id_to_part_seg_group, attribute_names
+
+
+def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.Tensor, map_attr_id_to_part_seg_group: torch.Tensor, hard_iou=True):
     """
         Given a saliency map per attribute of any model and the corresponding part segmentation mask for that attribute, we compute the IoU
         between them. The saliency map does not have to have the same shape as the part segmentation masks, this method resizes them to
@@ -95,9 +125,11 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
         Returns:
             iou_sum_per_attr: The sum of IoU per attribute, over all batches [A]
             iou_count_per_attr: The count of valid IoU entries per attribute, over all batches [A]
+            saliency_maps_upsampled: The saliency maps, upsampled to part segmentation shape [B, A, H, W]
+            seg_masks_per_attribute: The segmentation masks, with each attribute being matched its proper part [B, A, H, W]
     """
     
-    # For each of the attributes attention map, get its respective group (and ID) and retrieve the segmentation mask for that group.
+    # For each of the attributes saliency map, get its respective group (and ID) and retrieve the segmentation mask for that group.
     _, _, H, W = part_seg_masks.shape
     group_idx = map_attr_id_to_part_seg_group.unsqueeze(0).expand(saliency_maps.shape[0], -1)  # Adapt to current batch size [B, A]
     group_idx = group_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, H, W)  # Adapt to part segmentation size [B,A,H,W]
@@ -108,31 +140,30 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
     # Get binary mask to denote for each image which attribute segmentations exist and which dont
     gt_presence_mask = get_presence_mask(seg_masks_per_attribute)   # [B, A]
 
-    # Upsample attention maps to segmentation mask shape, bilinear for smooth --> maybe choose other?
-    attention_maps_upsampled = F.interpolate(saliency_maps, size=(H, W), mode='bilinear', align_corners=False)
+    # Upsample saliency maps to segmentation mask shape, bilinear for smooth --> maybe choose other?
+    saliency_maps_upsampled = F.interpolate(saliency_maps, size=(H, W), mode='bilinear', align_corners=False)
 
     # Compute hard IoU on binarized attention masks
     if hard_iou:
-        binarized_att_maps = percentile_threshold_maps(saliency_maps).float()
-        binarized_att_maps_upsampled = F.interpolate(binarized_att_maps, size=(H, W), mode='nearest')
-        iou_per_attr = compute_iou(binarized_att_maps_upsampled, seg_masks_per_attribute)  # [B, A]
-
+        binarized_saliency_maps = percentile_threshold_maps(saliency_maps).float()
+        binarized_saliency_maps_upsampled = F.interpolate(binarized_saliency_maps, size=(H, W), mode='nearest')
+        iou_per_attr = compute_iou(binarized_saliency_maps_upsampled, seg_masks_per_attribute)  # [B, A]
     # Compute soft IoU
     else:
-        iou_per_attr = compute_soft_iou(attention_maps_upsampled, seg_masks_per_attribute) # [B, A]
+        iou_per_attr = compute_soft_iou(saliency_maps_upsampled, seg_masks_per_attribute) # [B, A]
 
     # Collect sum and count IoU for each attribute, mask out invalid entries
     iou_per_attr[~gt_presence_mask] = 0 
     iou_sum_per_attr = iou_per_attr.sum(dim=0)  # Sum per attribute
     iou_count_per_attr = gt_presence_mask.sum(dim=0)  # Count valid entries
-    return iou_sum_per_attr, iou_count_per_attr
+    return iou_sum_per_attr, iou_count_per_attr, saliency_maps_upsampled, seg_masks_per_attribute
 
 
 def compute_mIoU_statistics(
         iou_sum_per_attr: torch.Tensor,
         iou_count_per_attr: torch.Tensor,
         attribute_names: List[str],
-        map_attr_id_to_part_seg_group: dict,
+        map_attr_id_to_part_seg_group: torch.Tensor,
 ) -> None:
     """
         Computes and prints mIoU statistics: 1) globally, 2) per attribute, 3) per part segmentation group.

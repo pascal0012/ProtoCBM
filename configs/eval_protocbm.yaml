@@ -1,0 +1,17 @@
+mode: XCY   # XY and XC and CY
+n_attributes: 112
+
+salieny_method: attention
+concept_mapper: protomod
+concept_activation: none    # "relu" or "sigmoid"
+
+log_dir: outputs/ProtoCBM
+image_dir: data/CUB_200_2011/images
+data_dir: data/CUB_processed/class_attr_data_10
+part_seg_dir: 
+vis_every_n: 15
+seed: 1
+
+batch_size: 16
+use_aux: false
+

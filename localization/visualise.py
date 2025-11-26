@@ -4,10 +4,21 @@ import os
 import random
 
 
-def visualise(imgs, attention_masks, seg_masks, attribute_names, batch_nr, attributes=10, batch_idx=None, t_mean=0.5, t_std=2, save_path=""):
+def visualise_part_segmentations(
+    imgs,
+    saliency_maps,
+    seg_masks,
+    attribute_names,
+    batch_nr,
+    attributes=10,
+    batch_idx=None,
+    t_mean=0.5,
+    t_std=2,
+    save_path=""
+):
     """
         imgs: torch.Tensor of [B, C, H, W] the respective images
-        attention_masks: torch.Tensor of [B, A, H, W] the attention masks, per attribute A
+        saliency_maps: torch.Tensor of [B, A, H, W] of the saliency maps matched to the segmentation mask shape, per attribute A
         seg_masks: torch.Tensor of [B, A, H, W] the segmentation masks, per attribute A
         attribute_names: List of [A], giving each attribute its name
         batch_nr: The current batch we are looking at
@@ -18,7 +29,7 @@ def visualise(imgs, attention_masks, seg_masks, attribute_names, batch_nr, attri
         save_path: Path where to save the visualizations
     """
 
-    B, A, H, W = attention_masks.shape
+    B, A, H, W = saliency_maps.shape
     # Sample random batches / attributes if none are provided
     if batch_idx is None:
         batch_idx = random.randint(0, B-1)
@@ -27,7 +38,7 @@ def visualise(imgs, attention_masks, seg_masks, attribute_names, batch_nr, attri
     n_attributes = len(attributes)
 
     img = imgs[batch_idx]
-    masks = attention_masks[batch_idx][attributes]
+    masks = saliency_maps[batch_idx][attributes]
     seg_masks = seg_masks[batch_idx][attributes]
     attr_names = [attribute_names[i] for i in attributes]
 
