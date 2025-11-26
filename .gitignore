@@ -1,1 +1,8 @@
 .vscode
+__pycache__/
+data/
+output/
+logs/
+.venv
+pyproject.toml
+.python-version
