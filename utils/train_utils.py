@@ -1,11 +1,15 @@
 from argparse import Namespace
+from typing import Optional
 import torch
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from analysis import Logger, AverageMeter, LossMeter
 import os
 
+from losses import ProtoModLoss
+from models.concept_mapper import ProtoMod
 from models.models import ModelXtoC, ModelXtoCtoY, ModelXtoY
+
 
 def prepare_model(model: nn.Module):
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -13,6 +17,7 @@ def prepare_model(model: nn.Module):
     model.compile()
 
     return model
+
 
 def logger_and_summarywriter(args: Namespace):
     os.makedirs(args.log_dir, exist_ok=True)
@@ -24,6 +29,7 @@ def logger_and_summarywriter(args: Namespace):
     tb_writer = SummaryWriter(log_dir=os.path.join(args.log_dir, "tensorboard"))
 
     return logger, tb_writer
+
 
 def optimizer_and_scheduler_by_name(model: nn.Module, args: Namespace):
     if args.optimizer == "Adam":
@@ -46,12 +52,13 @@ def optimizer_and_scheduler_by_name(model: nn.Module, args: Namespace):
             momentum=0.9,
             weight_decay=args.weight_decay,
         )
-        
+
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer, step_size=args.scheduler_step, gamma=0.1
     )
 
     return optimizer, scheduler
+
 
 def model_by_mode(args: Namespace) -> nn.Module:
     if args.mode == "XCY":
@@ -62,5 +69,16 @@ def model_by_mode(args: Namespace) -> nn.Module:
         model = ModelXtoC(args)
     else:
         raise ValueError(f"Unknown mode {args.mode}")
-    
+
     return model
+
+
+def create_criterions(model: nn.Module, args: Namespace):
+    assert (
+        model.concept_mapper is not None and type(model.concept_mapper) is ProtoMod
+    ), "Model does not have a concept mapper for ProtoModLoss"
+
+    cross_entropy = nn.CrossEntropyLoss()
+    protomod_criterion = ProtoModLoss(model.concept_mapper, args)
+
+    return cross_entropy, protomod_criterion
