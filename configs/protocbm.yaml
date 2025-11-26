@@ -1,0 +1,24 @@
+mode: XCY   # XY and XC and CY
+n_attributes: 112
+
+concept_mapper: protomod
+concept_activation: none    # "relu" or "sigmoid"
+
+log_dir: outputs/ProtoCBM
+image_dir: data/CUB_200_2011/images
+data_dir: data/CUB_processed/class_attr_data_10
+checkpoint: ""
+seed: 1
+
+epochs: 1000
+batch_size: 64
+lr: 0.01
+optimizer: sgd
+scheduler_step: 1000
+weight_decay: 0.00004
+use_aux: true
+
+# ProtoCBM specifics
+loss_weight_attribute_reg: 1.0
+loss_weight_cpt: 1e-9
+loss_weight_decorrelation: 4e-2

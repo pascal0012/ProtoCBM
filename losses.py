@@ -4,9 +4,9 @@ import torch
 import torch.nn.functional as F
 from torch import nn, zeros_like
 
-from utils.apn_consts import MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
-from utils.index_translation_util import map_attribute_ids_from_cub_to_cbm
-from utils.apn_utils import add_glasso, get_middle_graph
+from ProtoCBM.utils.mappings import MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
+from ProtoCBM.utils.index_translation import map_attribute_ids_from_cub_to_cbm
+from ProtoCBM.utils.protomod_utils import add_glasso, get_middle_graph
 from models.concept_mapper import ProtoMod
 
 

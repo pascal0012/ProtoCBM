@@ -52,6 +52,7 @@ class Inception3(nn.Module):
                 expand_dim=expand_dim,
             )
         self.final_channel_dim = 2048
+        self.image_size = 299
         self.Mixed_7a = InceptionD(768)
         self.Mixed_7b = InceptionE(1280)
         self.Mixed_7c = InceptionE(self.final_channel_dim)

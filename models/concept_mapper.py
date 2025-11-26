@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch import nn
 import torch
 
-from utils.apn_consts import NUM_ATTRIBUTES
+from ProtoCBM.utils.mappings import NUM_ATTRIBUTES
 
 
 class ProtoMod(nn.Module):
