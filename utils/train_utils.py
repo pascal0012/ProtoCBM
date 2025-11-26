@@ -1,9 +1,9 @@
 from argparse import Namespace
-from typing import Optional
 import torch
 from torch import nn
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from analysis import Logger, AverageMeter, LossMeter
+from analysis import Logger, AverageMeter, accuracy
 import os
 
 from losses import ProtoModLoss
@@ -82,3 +82,21 @@ def create_criterions(model: nn.Module, args: Namespace):
     protomod_criterion = ProtoModLoss(model.concept_mapper, args)
 
     return cross_entropy, protomod_criterion
+
+
+def compute_accuracies(
+    outputs: torch.Tensor,
+    labels,
+    epoch: int,
+    class_acc_meter: AverageMeter,
+    tb_writer: SummaryWriter,
+) -> AverageMeter:
+    # Calculate classification accuracy
+    class_acc = accuracy(
+        outputs[0], labels, topk=(1,)
+    )  # only care about class prediction accuracy
+    class_acc_meter.update(class_acc[0], outputs.size(0))
+
+    tb_writer.add_scalar("Class Accuracy/train", class_acc_meter.avg.item(), epoch)
+
+    return class_acc_meter

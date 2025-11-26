@@ -5,16 +5,18 @@ import time
 from argparse import Namespace
 from datetime import datetime
 
-from numpy import cross
+import numpy as np
 import torch
+import torch.nn.functional as F
 import yaml
-from analysis import AverageMeter, LossMeter
+from analysis import AverageMeter, LossMeter, accuracy, binary_accuracy
 from torch import nn
 
 from cub.config import LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
 from losses import ProtoModLoss
 from utils.train_utils import (
+    compute_accuracies,
     create_criterions,
     logger_and_summarywriter,
     model_by_mode,
@@ -44,7 +46,7 @@ def epoch_wrapper(
     protomod_criterion: ProtoModLoss,
 ):
     loss_meter = LossMeter(loss_labels)
-    acc_meter = AverageMeter()
+    class_acc_meter = AverageMeter()
 
     if is_training:
         model.train()
@@ -66,61 +68,37 @@ def epoch_wrapper(
         )
 
         losses = []
-        log_losses = []
 
         if args.use_aux:
             outputs, similarity_scores, attention_maps, aux_outputs = model(inputs)
 
-            classification_loss = cross_entropy(outputs, labels) + 0.4 * cross_entropy(aux_outputs, labels)
+            classification_loss = cross_entropy(outputs, labels) + 0.4 * cross_entropy(
+                aux_outputs, labels
+            )
         else:
             outputs, similarity_scores, attention_maps = model(inputs)
 
             classification_loss = cross_entropy(outputs, labels)
 
-
         losses.append(classification_loss)
 
         loss, attribute_reg_loss, cpt_loss, decorrelation_loss = protomod_criterion(
-                similarity_scores, attention_maps, attr_labels
-            )
-        
+            similarity_scores, attention_maps, attr_labels
+        )
+
         losses.append(attribute_reg_loss)
         losses.append(cpt_loss)
         losses.append(decorrelation_loss)
 
-        if args.bottleneck:  # attribute accuracy
-            sigmoid_outputs = torch.nn.Sigmoid()(torch.cat(outputs, dim=1))
-            acc = binary_accuracy(sigmoid_outputs, attr_labels)
-            acc_meter.update(acc.data.cpu().numpy(), inputs.size(0))
+        # Calculate attribute accuracy
+        class_acc_meter = compute_accuracies(
+            outputs, labels, epoch, class_acc_meter, tb_writer
+        )
 
-        else:
-            acc = accuracy(
-                outputs[0], labels, topk=(1,)
-            )  # only care about class prediction accuracy
-            acc_meter.update(acc[0], inputs.size(0))
-
-        if attr_criterion is not None:
-            if args.bottleneck:
-                total_loss = sum(losses) / args.n_attributes
-            else:  # cotraining, loss by class prediction and loss by attribute prediction have the same weight
-                total_loss = losses[0] + sum(losses[1:])
-                if args.normalize_loss:
-                    total_loss = total_loss / (
-                        1 + args.attr_loss_weight * args.n_attributes
-                    )
-        else:  # finetune
-            total_loss = sum(losses)
+        total_loss = torch.sum(torch.stack(losses))
 
         loss_meter.update(
-            np.array(
-                [
-                    total_loss.item(),
-                    log_losses[0],
-                    log_losses[1],
-                    log_losses[2],
-                    log_losses[3],
-                ]
-            ),
+            np.array([total_loss.item()] + [loss.item() for loss in losses]),
             inputs.size(0),
         )
 
@@ -130,10 +108,14 @@ def epoch_wrapper(
             optimizer.step()
 
     for i in range(loss_meter.n_losses):
-        tb_writer.add_scalar(f"Train/{loss_labels[i]}", loss_meter.avg[i], epoch)
-    tb_writer.add_scalar("Accuracy/train", acc_meter.avg.item(), epoch)
+        tb_writer.add_scalar(
+            f"{'Train' if is_training else 'Val'}/{loss_labels[i]}",
+            loss_meter.avg[i],
+            epoch,
+        )
 
-    return loss_meter, acc_meter
+    return loss_meter, class_acc_meter
+
 
 def train(model: nn.Module, args: Namespace) -> float:
     model = prepare_model(model)
@@ -241,6 +223,7 @@ def train(model: nn.Module, args: Namespace) -> float:
 
     return best_val_acc
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -257,7 +240,7 @@ if __name__ == "__main__":
         args = yaml.safe_load(f)
 
     # Add run name, keep as namespace to be able to access like args.param
-    args = Namespace(**args, run_name=cli_args.run_name, config_path=cli_args.config)
+    args = Namespace(**args, config_path=cli_args.config)
 
     model = model_by_mode(args)
 
