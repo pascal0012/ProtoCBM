@@ -2,17 +2,18 @@
 General utils for training, evaluation and data loading
 """
 import os
-from typing import Literal
-import torch
 import pickle
-import numpy as np
-import torchvision.transforms as transforms
+from pathlib import Path
+from typing import Literal, Union
 
-from PIL import Image
+import numpy as np
+import torch
+import torchvision.transforms as transforms
 from APN.apn_consts import PART_SEG_GROUPS
+from PIL import Image
+from torch.utils.data import BatchSampler, DataLoader, Dataset
+
 from CUB.config import BASE_DIR, N_ATTRIBUTES
-from torch.utils.data import BatchSampler
-from torch.utils.data import Dataset, DataLoader
 
 
 class CUBDataset(Dataset):
@@ -20,23 +21,40 @@ class CUBDataset(Dataset):
     Returns a compatible Torch Dataset object customized for the CUB dataset
     """
 
-    def __init__(self, pkl_file_paths, use_attr, no_img, uncertain_label, image_dir, n_class_attr, transform=None):
+    def __init__(self, 
+        pkl_file_paths: list[str], 
+        use_attr: bool, 
+        no_img: bool, 
+        uncertain_label: bool, 
+        image_dir: str, 
+        n_class_attr: int, 
+        transform=None
+    ):
         """
+        CUBDataset constructor which reads all data from specified (train/val/test) pkl files.
+
+        For the construction all pickel files are loaded and combined into one large list.
+
         Arguments:
-        pkl_file_paths: list of full path to all the pkl data
-        use_attr: whether to load the attributes (e.g. False for simple finetune)
-        no_img: whether to load the images (e.g. False for A -> Y model)
-        uncertain_label: if True, use 'uncertain_attribute_label' field (i.e. label weighted by uncertainty score, e.g. 1 & 3(probably) -> 0.75)
-        image_dir: default = 'images'. Will be append to the parent dir
-        n_class_attr: number of classes to predict for each attribute. If 3, then make a separate class for not visible
-        transform: whether to apply any special transformation. Default = None, i.e. use standard ImageNet preprocessing
+            pkl_file_paths: list of full path to all the pkl data
+            use_attr: whether to load the attributes (e.g. False for simple finetune)
+            no_img: whether to load the images (e.g. False for A -> Y model)
+            uncertain_label: if True, use 'uncertain_attribute_label' field (i.e. label weighted by uncertainty score, e.g. 1 & 3(probably) -> 0.75)
+            image_dir: default = 'images'. Will be append to the parent dir
+            n_class_attr: number of classes to predict for each attribute. If 3, then make a separate class for not visible
+            transform: whether to apply any special transformation. Default = None, i.e. use standard ImageNet preprocessing
         """
         self.data = []
+
+        # Train has to be loaded (val is optional)
         self.is_train = any(["train" in path for path in pkl_file_paths])
         if not self.is_train:
             assert any([("test" in path) or ("val" in path) for path in pkl_file_paths])
+
+        # load the pickel files into one large list
         for file_path in pkl_file_paths:
             self.data.extend(pickle.load(open(file_path, 'rb')))
+        
         self.transform = transform
         self.use_attr = use_attr
         self.no_img = no_img
@@ -48,28 +66,34 @@ class CUBDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
+        """ Fetches the items based on the location of the pickl files.
+
+        Since the pickel files are constant in our codebase we can safely
+        extract the correct path from the predetermined img_paths of the pickel files
+        The source path looks like this:
+            '/juice/scr/scr102/scr/thaonguyen/CUB_supervision/datasets/CUB_200_2011/
+            images/022.Chuck_will_Widow/Chuck_Will_Widow_0059_796982.jpg'
+        """
         img_data = self.data[idx]
         img_path = img_data['img_path']
+
         # Trim unnecessary paths
-        try:
-            idx = img_path.split('/').index('CUB_200_2011')
-            if self.image_dir != 'images':
+        img_path = Path(img_path)
+    
+        idx = img_path.split('/').index('CUB_200_2011')
+        if self.image_dir != 'images':
+            img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+1:])
+            img_path = img_path.replace('images/', '')
+            if "images" in self.image_dir:
+                img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+2:])
+            else:
                 img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+1:])
                 img_path = img_path.replace('images/', '')
-                if "images" in self.image_dir:
-                    img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+2:])
-                else:
-                    img_path = '/'.join([self.image_dir] + img_path.split('/')[idx+1:])
-                    img_path = img_path.replace('images/', '')
-            else:
-                img_path = '/'.join(img_path.split('/')[idx:])
-            img = Image.open(img_path).convert('RGB')
-        except:
-            img_path_split = img_path.split('/')
-            split = 'train' if self.is_train else 'test'
-            img_path = '/'.join(img_path_split[:2] + [split] + img_path_split[2:])
-            img = Image.open(img_path).convert('RGB')
-
+        else:
+            img_path = '/'.join(img_path.split('/')[idx:])
+        img = Image.open(img_path).convert('RGB')
+            
+       
         class_label = img_data['class_label']
         if self.transform:
             img = self.transform(img)
