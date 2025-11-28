@@ -25,7 +25,7 @@ class CUBDataset(Dataset):
 
     def __init__(self, 
         pkl_file_paths: list[str], 
-        no_img: bool, 
+        no_img: bool,  #! -> wollen wir das direkt auf mode mappen? 
         image_dir: str, 
         transform=None
     ):
@@ -189,6 +189,7 @@ def load_data(args, split: Literal["train", "val", "test"], resol=299):
         args.data_dir: directory where the pkl files are stored
         args.batch_size: batch size for data loader
         args.image_dir: directory where the images are stored
+        args.mode: either "CY" or "AY"
     """
     # TODO: ONLY TEMP FIX
     pkl_paths = [os.path.join(BASE_DIR, args.data_dir, f"{split}.pkl")]
@@ -205,7 +206,7 @@ def load_data(args, split: Literal["train", "val", "test"], resol=299):
             transforms.ToTensor(), #implicitly divides by 255
             transforms.Normalize(mean = [0.5, 0.5, 0.5], std = [2, 2, 2])
             #transforms.Normalize(mean = [ 0.485, 0.456, 0.406 ], std = [ 0.229, 0.224, 0.225 ]),
-            ])
+        ])
     else:
         transform = transforms.Compose([
             #transforms.Resize((resized_resol, resized_resol)),
@@ -213,9 +214,15 @@ def load_data(args, split: Literal["train", "val", "test"], resol=299):
             transforms.ToTensor(), #implicitly divides by 255
             transforms.Normalize(mean = [0.5, 0.5, 0.5], std = [2, 2, 2])
             #transforms.Normalize(mean = [ 0.485, 0.456, 0.406 ], std = [ 0.229, 0.224, 0.225 ]),
-            ])
+        ])
 
-    dataset = CUBDataset(pkl_paths, args.mode=="CY", args.image_dir, transform)
+    dataset = CUBDataset(
+        pkl_paths, 
+        args.mode == "CY", 
+        args.image_dir, 
+        transform
+    )
+
     if is_training:
         drop_last = True
         shuffle = True
@@ -233,6 +240,7 @@ def load_data(args, split: Literal["train", "val", "test"], resol=299):
         persistent_workers=True,  # Keep workers alive between epochs
     )
     return loader
+
 
 def find_class_imbalance(pkl_file, multiple_attr=False, attr_idx=-1):
     """
