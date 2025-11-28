@@ -10,6 +10,8 @@ conda env create --name proto-cbm --file=environments.yml
 ## Dataset
 The following chapter explains how to download and store the Training and validation data.
 
+Shoud you want to store the data in a different location please modify the `BASE_DIR` variable in the `config.py` file.
+
 ### Training Datat
 The training data can be 
 curl -L -o ~/Downloads/cub2002011.zip\
