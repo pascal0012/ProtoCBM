@@ -1,3 +1,7 @@
+import captum
+import numpy as np
+
+
 def get_saliency_map_and_prediction(output, args):
     """
         Given a saliency method, a salieny method for the current model output is created and returned. Alongside it,
