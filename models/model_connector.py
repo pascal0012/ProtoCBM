@@ -7,6 +7,9 @@ from typing import Literal, Optional
 import torch.nn as nn
 import torch.nn.functional as F
 
+# We need this instead of a lamba since pytorch can't serialize lambdas
+def identity(x):
+    return x
 
 class ModelConnector(nn.Module):
     def __init__(
@@ -32,7 +35,7 @@ class ModelConnector(nn.Module):
         elif concept_activation == "relu":
             self.concept_activation = F.relu
         else:
-            self.concept_activation = lambda x: x
+            self.concept_activation = identity
 
     def forward_features(self, features, aux_forward=False):
         # Saves concept mapper outputs, if any
@@ -56,7 +59,7 @@ class ModelConnector(nn.Module):
         return (output, sim_scores, maps) if not aux_forward else output
 
     def forward(self, x):
-        if self.use_aux:
+        if self.training and self.use_aux:
             assert self.backbone is not None, "Backbone must be defined when using auxiliary outputs."
             output, aux_output = self.backbone(x)
             # Unpack main feature tuple, construct one tuple

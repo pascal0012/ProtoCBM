@@ -69,7 +69,7 @@ def epoch_wrapper(
 
         losses = []
 
-        if args.use_aux:
+        if model.training and args.use_aux:
             outputs, similarity_scores, attention_maps, aux_outputs = model(inputs)
 
             classification_loss = cross_entropy(outputs, labels) + 0.4 * cross_entropy(
@@ -95,7 +95,7 @@ def epoch_wrapper(
             outputs, labels, epoch, class_acc_meter, tb_writer
         )
 
-        total_loss = torch.sum(torch.stack(losses))
+        total_loss = torch.stack(losses).sum()
 
         loss_meter.update(
             np.array([total_loss.item()] + [loss.item() for loss in losses]),
@@ -180,9 +180,9 @@ def train(model: nn.Module, args: Namespace) -> float:
                 [
                     datetime.now().strftime("%H:%M:%S"),
                     f"Epoch [{epoch}]",
-                    f"Train/loss: {train_loss_meter.avg:.4f}",
+                    f"Train/loss: {[f'{type}: {loss.item():.4f}' for type, loss in zip(loss_labels, train_loss_meter.avg)]}",
                     f"Train/acc: {train_acc_meter.avg.item():.4f}",
-                    f"Val/loss: {val_loss_meter.avg:.4f}",
+                    f"Val/loss: {[f'{type}: {loss.item():.4f}' for type, loss in zip(loss_labels, val_loss_meter.avg)]}",
                     f"Val/acc: {val_acc_meter.avg.item():.4f}"
                     f"Best val epoch: {best_val_epoch}",
                     f"Time: {time.time() - start_time:.2f} sec",
@@ -194,7 +194,7 @@ def train(model: nn.Module, args: Namespace) -> float:
         logger.flush()
 
         if epoch <= scheduler_stop_epoch:
-            scheduler.step(epoch)
+            scheduler.step()
 
         if epoch >= 100 and val_acc_meter.avg < 3:
             print("Early stopping because of low accuracy")

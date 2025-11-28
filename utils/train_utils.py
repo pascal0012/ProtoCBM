@@ -198,7 +198,7 @@ def compute_accuracies(
 ) -> AverageMeter:
     # Calculate classification accuracy
     class_acc = accuracy(
-        outputs[0], labels, topk=(1,)
+        outputs, labels, topk=(1,)
     )  # only care about class prediction accuracy
     class_acc_meter.update(class_acc[0], outputs.size(0))
 

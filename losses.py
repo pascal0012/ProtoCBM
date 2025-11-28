@@ -85,7 +85,7 @@ class ProtoModLoss(nn.Module):
 
         return (
             loss,
-            attribute_reg_loss.item(),
-            cpt_loss.item(),
-            decorrelation_loss.item(),
+            attribute_reg_loss,
+            cpt_loss,
+            decorrelation_loss,
         )
