@@ -42,14 +42,14 @@ class ProtoMod(nn.Module):
 
 
 class CBMMapper(nn.Module):
-    def init(self, expand_dim):
+    def init(self, channel_dim, expand_dim):
         """
             Args:
                 expand_dim: The dimensionality of the hidden layer MLP. If = 0, no extra hidden layer is inserted, but a direct mapping is cretated.
         """
         super(CBMMapper, self).__init__()
         for _ in range(self.n_attributes):
-            self.all_fc.append(FC(2048, 1, expand_dim))
+            self.all_fc.append(FC(channel_dim, 1, expand_dim))
 
 
     def forward(self, x):
@@ -58,11 +58,11 @@ class CBMMapper(nn.Module):
         """
         # Adaptive average pooling
         x = F.adaptive_avg_pool2d(x, (1, 1))
-        # N x 2048 x 1 x 1
+        # N x C x 1 x 1
         x = F.dropout(x, training=self.training)
-        # N x 2048 x 1 x 1
+        # N x C x 1 x 1
         x = x.view(x.size(0), -1)
-        # N x 2048
+        # N x C
         out = []
         for fc in self.all_fc:
             out.append(fc(x))

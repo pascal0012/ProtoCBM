@@ -33,9 +33,14 @@ class Inception3(nn.Module):
         """
         super(Inception3, self).__init__()
 
+        # Dimensionalities and further properties that can differ between backbones
         self.final_channel_dim = 2048
         self.image_size = 299
         self.output_map_size = 8
+
+        # Same, but for aux output maps
+        self.aux_final_channel_dim = 768
+        self.aux_output_map_size = 1
 
         self.aux_logits = aux_logits
         self.n_attributes = n_attributes
@@ -143,15 +148,10 @@ class InceptionAux(nn.Module):
     ):
         super(InceptionAux, self).__init__()
         self.conv0 = BasicConv2d(in_channels, 128, kernel_size=1)
-        self.conv1 = BasicConv2d(128, 768, kernel_size=5)
+        self.conv1 = BasicConv2d(128, in_channels, kernel_size=5)
         self.conv1.stddev = 0.01
         self.n_attributes = n_attributes
         self.expand_dim = expand_dim
-
-        self.all_fc = nn.ModuleList()
-        for i in range(self.n_attributes):
-            self.all_fc.append(FC(768, 1, expand_dim, stddev=0.001))
-
 
     def forward(self, x):
         # N x 768 x 17 x 17
@@ -160,3 +160,4 @@ class InceptionAux(nn.Module):
         x = self.conv0(x)
         # N x 128 x 5 x 5
         return self.conv1(x)
+        # N x 768 x 1 x 1

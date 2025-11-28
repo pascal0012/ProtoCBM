@@ -19,13 +19,18 @@ def ModelXtoC(args: Namespace):
 
     concept_mapper = concept_mapper_by_name(args, backbone.final_channel_dim)
 
+    # The auxiliary logits need a separate concept mapper, as they are of different channel dimensionality + feature map shape
+    concept_mapper_aux = None
+    if args.use_aux:
+        concept_mapper_aux = concept_mapper_by_name(args, backbone.aux_final_channel_dim)
+
     classifier = MLP(
         input_dim=args.n_attributes,
         num_classes=N_CLASSES,
         expand_dim=args.expand_dim,
     )
     return ModelConnector(
-        backbone, concept_mapper, classifier, args.use_aux, args.concept_activation
+        backbone, concept_mapper, classifier, args.use_aux, args.concept_activation, concept_mapper_aux
     )
 
 def ModelCtoY(args: Namespace):
@@ -43,13 +48,18 @@ def ModelXtoCtoY(args: Namespace):
 
     concept_mapper = concept_mapper_by_name(args, backbone.final_channel_dim)
 
+    # The auxiliary logits need a separate concept mapper, as they are of different channel dimensionality + feature map shape
+    concept_mapper_aux = None
+    if args.use_aux:
+        concept_mapper_aux = concept_mapper_by_name(args, backbone.aux_final_channel_dim)
+
     classifier = MLP(
         input_dim=args.n_attributes,
         num_classes=N_CLASSES,
         expand_dim=args.expand_dim,
     )
     return ModelConnector(
-        backbone, concept_mapper, classifier, args.use_aux, args.concept_activation
+        backbone, concept_mapper, classifier, args.use_aux, args.concept_activation, concept_mapper_aux
     )
 
 
@@ -83,6 +93,6 @@ def concept_mapper_by_name(args: Namespace, input_channel_dim: int) -> nn.Module
     if args.concept_mapper == "protomod":
         return ProtoMod(channel_dim=input_channel_dim, num_vectors=args.proto_n_vectors)
     elif args.concept_mapper == "cbm":
-        return CBMMapper(args.expand_dim)
+        return CBMMapper(input_channel_dim, args.expand_dim)
     else:
         raise ValueError(f"Unknown concept mapper name: {args.concept_mapper}")
