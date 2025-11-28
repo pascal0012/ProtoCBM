@@ -184,6 +184,11 @@ def load_data(args, split: Literal["train", "val", "test"], resol=299):
     Note: Inception needs (299,299,3) images with inputs scaled between -1 and 1
     Loads data with transformations applied, and upsample the minority class if there is class imbalance and weighted loss is not used
     NOTE: resampling is customized for first attribute only, so change sampler.py if necessary
+
+    Required Args:
+        args.data_dir: directory where the pkl files are stored
+        args.batch_size: batch size for data loader
+        args.image_dir: directory where the images are stored
     """
     # TODO: ONLY TEMP FIX
     pkl_paths = [os.path.join(BASE_DIR, args.data_dir, f"{split}.pkl")]
