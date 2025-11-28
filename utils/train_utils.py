@@ -205,3 +205,21 @@ def compute_accuracies(
     tb_writer.add_scalar("Class Accuracy/train", class_acc_meter.avg.item(), epoch)
 
     return class_acc_meter
+
+
+def normalize_scientific_floats(cfg):
+    """
+        Recursively convert strings that contain 'e' and look like floats into floats to parse
+        yaml arguments like 1e9 into their proper float.
+    """
+    if isinstance(cfg, dict):
+        return {k: normalize_scientific_floats(v) for k, v in cfg.items()}
+    elif isinstance(cfg, list):
+        return [normalize_scientific_floats(v) for v in cfg]
+    elif isinstance(cfg, str) and "e" in cfg.lower():
+        try:
+            return float(cfg)
+        except ValueError:
+            return cfg 
+    else:
+        return cfg

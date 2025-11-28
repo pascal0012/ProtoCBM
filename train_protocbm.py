@@ -19,6 +19,7 @@ from utils.train_utils import (
     logger_and_summarywriter,
     model_by_mode,
     optimizer_and_scheduler_by_name,
+    normalize_scientific_floats,
     prepare_model,
     AverageMeter,
     LossMeter,
@@ -220,6 +221,7 @@ if __name__ == "__main__":
     # Load the config yaml
     with open(cli_args.config) as f:
         args = yaml.safe_load(f)
+    args = normalize_scientific_floats(args)
 
     # Add run name, keep as namespace to be able to access like args.param
     args = Namespace(**args, config_path=cli_args.config)
