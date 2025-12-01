@@ -171,7 +171,7 @@ def train(model: nn.Module, args: Namespace) -> float:
             best_val_epoch = epoch
             best_val_acc = val_acc_meter.avg
 
-            logger.write("New model best model at epoch %d\n" % epoch)
+            logger.write("New model best model at epoch %d" % epoch)
             torch.save(
                 model, os.path.join(args.log_dir, "best_model_%d.pth" % args.seed)
             )
@@ -184,7 +184,7 @@ def train(model: nn.Module, args: Namespace) -> float:
                     f"Train/loss: {[f'{type}: {loss.item():.4f}' for type, loss in zip(loss_labels, train_loss_meter.avg)]}",
                     f"Train/acc: {train_acc_meter.avg.item():.4f}",
                     f"Val/loss: {[f'{type}: {loss.item():.4f}' for type, loss in zip(loss_labels, val_loss_meter.avg)]}",
-                    f"Val/acc: {val_acc_meter.avg.item():.4f}"
+                    f"Val/acc: {val_acc_meter.avg.item():.4f}",
                     f"Best val epoch: {best_val_epoch}",
                     f"Time: {time.time() - start_time:.2f} sec",
                     f"LR: {scheduler.get_lr()[0]:.6f}",
@@ -198,10 +198,10 @@ def train(model: nn.Module, args: Namespace) -> float:
             scheduler.step()
 
         if epoch >= 100 and val_acc_meter.avg < 3:
-            print("Early stopping because of low accuracy")
+            logger.write("Early stopping because of low accuracy")
             break
         if epoch - best_val_epoch >= 100:
-            print("Early stopping because acc hasn't improved for a long time")
+            logger.write("Early stopping because acc hasn't improved for a long time")
             break
 
     return best_val_acc
