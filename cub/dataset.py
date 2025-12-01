@@ -100,7 +100,7 @@ class CUBLocalizationDataset(Dataset):
 
         # Load pickled data
         self.data = []
-        assert "test" in pkl_path or "validation" in pkl_path
+        assert "test" in pkl_path or "val" in pkl_path
         self.data = pickle.load(open(pkl_path, 'rb'))
 
         # Construct paths
@@ -225,12 +225,12 @@ class CUBLocalizationDataset(Dataset):
         for info in part_infos:
             #info: part_id, x1, y1, visible
             if info[-1] == 0.0: #part not visible, no gt
-                part_masks.append([0, 0, 0, 0]) # Must fill with dummy values for batching
+                part_masks.append(torch.zeros(4, dtype=torch.int16)) # Must fill with dummy values for batching
                 continue
             gt = (info[1], info[2])
             #change from x, y, w, h to x1, y1, x2, y2
             transformed_bird_BB = [bird_bb[0], bird_bb[1], bird_bb[0] + bird_bb[2], bird_bb[1] + bird_bb[3]]
-            part_masks.append(self.get_KP_BB(gt, mask_h, mask_w, transformed_bird_BB))
+            part_masks.append(torch.tensor(self.get_KP_BB(gt, mask_h, mask_w, transformed_bird_BB), dtype=torch.int16))
 
         return part_masks
 
@@ -304,106 +304,6 @@ class CUBLocalizationDataset(Dataset):
                 bb_info = [float(x) for x in bb_info]
                 
                 self.imgID_to_birdBB[int(id_str)] = bb_info
-
-
-class CUBDatasetPartSegmentations(Dataset):
-    """
-    Returns a compatible Torch Dataset object customized for the CUB dataset
-    """
-
-    def __init__(self, pkl_path, data_dir, resol, transform):
-        """
-        Args:
-            pkl_path: Full path to test or validation pkl
-            data_dir: Full path to the data directory of the CUB dataset, should point to the root.
-            transform: whether to apply any special transformation. Default = None, i.e. use standard ImageNet preprocessing
-        """
-        self.data = []
-        assert "test" in pkl_path or "validation" in pkl_path
-        self.data = pickle.load(open(pkl_path, 'rb'))
-
-        # Filter data to remove all classes for which no part segmentations exist (--> class_label > 70), +1 as it is zero-indexed
-        self.data = [d for d in self.data if d.get("class_label") + 1 <= 70]
-
-        self.transform = transform
-        self.resol = resol
-        self.data_dir = data_dir
-        self.image_dir = os.path.join(data_dir, "images")
-        self.part_seg_dir = os.path.join(data_dir, "part_segmentations")
-
-        self.mask_transform = transforms.Compose([
-            transforms.CenterCrop(299),         
-            transforms.ToTensor(),                          
-            lambda t: (t > 0.5).float()  # binarize
-        ])
-
-    def __len__(self):
-        return len(self.data)
-
-    def _load_mask(self, path_to_mask):
-        # Not all parts are segmented for each img (e.g. occlusion), fill with zeros
-        if not os.path.exists(path_to_mask):
-            return torch.zeros(1, self.resol, self.resol, dtype=torch.float32)
-
-        # If it exists: get part segmentation mask for this image / part pair
-        mask = Image.open(path_to_mask).convert("L")  # 'L' = grayscale
-
-        # Apply transformations to it (center crop like image, then binarize and add dummy channel dim)
-        return self.mask_transform(mask)
-    
-    def __getitem__(self, idx):
-        img_data = self.data[idx]
-        img_path = img_data['img_path']
-        
-        # Trim unnecessary paths, load image
-        path_parts = img_path.split('/')
-        cub_index = path_parts.index("images")
-        img_source_path = os.path.join(self.image_dir , "/".join(path_parts[cub_index+1:]))
-        img = Image.open(img_source_path).convert('RGB')
-
-        if self.transform:
-            img = self.transform(img)
-
-        # Get class and attribute labels
-        class_label = img_data['class_label']
-        attr_label = img_data['attribute_label']
-
-        # Get localization data, i.e. part segmentation masks and bounding box data
-        part_seg_masks = self._get_part_seg_masks(img_path)
-        
-        return img, class_label, attr_label, part_seg_masks
-
-    def _get_part_seg_masks(self, img_path):
-
-        # Get the class number, e.g. 002 for Laysan_Albatross, strip initial numbers, also get img name w/out extension
-        class_nr = str(int(img_path.split("/")[-2][:3]))
-        img_name = img_path.split("/")[-1].split(".")[0]
-
-        # Collect all part segmentation masks
-        part_lst = []
-        for part in PART_SEG_GROUPS:
-
-            # IMPORTANT: For left / right distinctions, we add the masks to one.
-            part_list = [part]
-            if part in ["eye", "wing", "leg"]:
-                part_list = [f"right_{part}", f"left_{part}"]
-
-            tmp_masks = []
-            for tmp_part in part_list:
-                tmp_masks.append(
-                    self._load_mask(
-                        os.path.join(self.part_seg_dir, "AnnotationMasksPerclass", class_nr, f"{img_name}_{tmp_part}.png")
-                    )
-                )
-            
-            # Combine masks, if needed, and add to part_lst.
-            if len(tmp_masks) == 1:
-                combined_mask = tmp_masks[0]
-            else:
-                combined_mask = ((tmp_masks[0] > 0) | (tmp_masks[1] > 0)).to(tmp_masks[0].dtype)
-            part_lst.append(combined_mask)
-
-        return torch.cat(part_lst, dim=0)  # (num_parts, H, W)
 
 
 # TODO: load pkl from path + corresponding file name

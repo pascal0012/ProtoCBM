@@ -27,7 +27,8 @@ def logger_and_summarywriter(args: Namespace):
     os.makedirs(args.log_dir, exist_ok=True)
 
     logger = Logger(os.path.join(args.log_dir, "log.txt"))
-    logger.write(str(args) + "\n")
+    for k, v in vars(args).items():
+        logger.write(f"{k}: {v}")
     logger.flush()
 
     tb_writer = SummaryWriter(log_dir=os.path.join(args.log_dir, "tensorboard"))
@@ -109,9 +110,9 @@ class Logger(object):
         self.close()
 
     def write(self, msg):
-        self.console.write(msg)
+        self.console.write(msg + "\n")
         if self.file is not None:
-            self.file.write(msg)
+            self.file.write(msg + "\n")
 
     def flush(self):
         self.console.flush()

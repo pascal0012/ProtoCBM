@@ -40,7 +40,6 @@ def compute_localization_accuracy(
 
     #get argmax attribute per part
     argmax_per_part = [] #max index per part, -1 if part not present
-    
     for part in part_dict.values():
         #take argmax of each part group
         subset = pre_attri[:, part_attribute_mapping_tensor[part]]
@@ -76,7 +75,7 @@ def compute_localization_accuracy(
     resized_heatmaps = torch.nn.functional.interpolate(heatmaps, size=img_size, mode='bilinear', align_corners=False)
 
     # Compute sliding window from heatmaps
-    optimal_masks_batch = compute_optimal_masks_per_mask(torch.from_numpy(resized_heatmaps), bounding_box_per_part.to(heatmaps.device))
+    optimal_masks_batch = compute_optimal_masks_per_mask(resized_heatmaps, bounding_box_per_part)
     optimal_masks_batch[~valid_mask] = 0
 
     # Get the IoU between the bounding boxes and our heatmaps, per part over all images, set to -1 for non-existing parts
@@ -90,10 +89,10 @@ def compute_localization_accuracy(
         collector_list.append(sub_res)
 
 
-def create_part_attribute_mapping_tensor(part_attribute_mapping: Dict[str, List[int]]):
+def create_part_attribute_mapping_tensor(part_attribute_mapping: Dict[str, List[int]], device):
     part_attribute_mapping_tensor = {}
     for part, attr_list in part_attribute_mapping.items():
-        part_attribute_mapping_tensor[part] = torch.tensor(attr_list).to("cuda" if torch.cuda.is_available() else "cpu")
+        part_attribute_mapping_tensor[part] = torch.tensor(attr_list).to(device)
     return part_attribute_mapping_tensor
 
 
@@ -187,6 +186,12 @@ def calculate_average_partwise_localization_accuracy(all_ious:list[dict], subgro
 
     mean_iou = [x for x in res.values() if x != -1]
     mean_iou_acc = sum(mean_iou)/len(mean_iou)
+
+    print("\n--------- LOCALIZATION ACCURACY ---------\n")
+
+    for group_name, acc in res.items():
+        print(f"Group {group_name} - LocAcc: {acc:.4f}")
+    print(f"\nMean LocAcc: {mean_iou_acc:.4f}")
 
     return res, mean_iou_acc
 
