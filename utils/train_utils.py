@@ -15,7 +15,13 @@ from models.concept_mapper import ProtoMod
 from models.models import ModelXtoC, ModelXtoCtoY, ModelXtoY
 
 
-def prepare_model(model: nn.Module):
+def prepare_model(model: nn.Module, args: Namespace, load_weights: bool = False):
+    # Load in weights, if any
+    if load_weights:
+        if args.model_name == "apn":
+            model.load_state_dict(torch.load(args.backbone_dir))
+        else:
+            model.load_state_dict(torch.load(os.path.join(args.log_dir, "best_model_1.pth")))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
     model.compile()

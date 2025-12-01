@@ -119,7 +119,7 @@ def epoch_wrapper(
 
 
 def train(model: nn.Module, args: Namespace) -> float:
-    model, _ = prepare_model(model)
+    model, _ = prepare_model(model, args)
 
     logger, tb_writer = logger_and_summarywriter(args)
 

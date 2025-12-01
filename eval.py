@@ -41,8 +41,7 @@ def eval(args):
 
     # Create the model and load weights
     model = create_model(args)
-    model = torch.load(os.path.join(args.log_dir, "best_model_1.pth"))
-    model, device = prepare_model(model)
+    model, device = prepare_model(model, args)
     model.eval()
 
     transform, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
