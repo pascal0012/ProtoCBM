@@ -4,7 +4,7 @@ This is the codebase for the project seminar "Project Lab Multimodal Artificial 
 ## Getting Started
 The environment can be installed using the following command.
 ```
-conda env create --name proto-cbm --file=environments.yml
+conda env create --name protocbm --file=environment.yml
 ```
 
 ## Dataset
@@ -15,7 +15,7 @@ Shoud you want to store the data in a different location please modify the `BASE
 ### Training Datat
 The training data can be 
 curl -L -o ~/Downloads/cub2002011.zip\
-  https://www.kaggle.com/api/v1/datasets/download/wenewone/cub2002011
+https://worksheets.codalab.org/bundles/0xd013a7ba2e88481bbc07e787f73109f5
 
 Additionally to the CUB_200_2011 dataset we use the preprocessed training data from the CUB paper. The processed data can be downloaded using the following link.
 https://worksheets.codalab.org/bundles/0x5b9d528d2101418b87212db92fea6683

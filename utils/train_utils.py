@@ -20,7 +20,7 @@ def prepare_model(model: nn.Module):
     model = model.to(device)
     model.compile()
 
-    return model
+    return model, device
 
 
 def logger_and_summarywriter(args: Namespace):

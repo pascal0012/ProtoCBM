@@ -1,6 +1,7 @@
 mode: XCY   # XY and XC and CY
 n_attributes: 112
 
+model_name: protocbm
 concept_mapper: protomod
 concept_activation: none    # "relu" or "sigmoid"
 
