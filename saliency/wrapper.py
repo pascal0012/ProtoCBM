@@ -22,3 +22,22 @@ class WrapperCUB(nn.Module):
         # Now ensure it's a tensor
         assert isinstance(out, torch.Tensor), "Selected output must be a tensor"
         return out
+    
+
+class WrapperProtoCBM(nn.Module):
+    """
+    Wrap a model that returns a list into one that returns a tensor.
+    You can choose which element (or combine them) for attribution.
+    """
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+    
+    def forward(self, x):
+        cls, attr, aux = self.model(x)
+        
+        out = attr
+
+        # Now ensure it's a tensor
+        assert isinstance(out, torch.Tensor), "Selected output must be a tensor"
+        return out
