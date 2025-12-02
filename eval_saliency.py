@@ -50,7 +50,7 @@ if __name__ == "__main__":
 
     # Todo: auto choices from available models
     parser.add_argument(
-        "--model_type", 
+        "--model_name", 
         type=str,
         required=True,
         help="Type of the model architecture"
@@ -71,12 +71,12 @@ if __name__ == "__main__":
     )
     
     # Initialize the model
-    if args.model_type == "CBM":
+    if args.model_name == "cbm":
         from saliency.wrapper import WrapperCUB as ModelWrapper
-    elif args.model_type == "ProtoCBM":
+    elif args.model_name == "protocbm":
         from saliency.wrapper import WrapperProtoCBM as ModelWrapper
     else:
-        raise ValueError(f"Unknown model type: {args.model_type}")
+        raise ValueError(f"Unknown model type: {args.model_name}")
     
     # load the model
     loaded_model = torch.load(
