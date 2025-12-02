@@ -3,6 +3,9 @@ from pathlib import Path
 from cub.dataset import load_data
 import torch
 
+from saliency.utils import CUBDBasicDataset
+from saliency import saliency
+
 def get_unique_output_dir(base_dir: Path) -> Path:
     """ Return a uniqe dir if already exists.
     
@@ -47,7 +50,7 @@ if __name__ == "__main__":
 
     # Todo: auto choices from available models
     parser.add_argument(
-        "--model_type", 
+        "--model_name", 
         type=str,
         required=True,
         help="Type of the model architecture"
@@ -62,38 +65,64 @@ if __name__ == "__main__":
     args.mode = "XCY"
 
     # load the data
-    val_loader = load_data(args, "val")
+    val_dataset = CUBDBasicDataset(
+        split="val", 
+        data_path="data/CUB_200_2011/"
+    )
+    
+    # Initialize the model
+    if args.model_name == "cbm":
+        from saliency.wrapper import WrapperCUB as ModelWrapper
+    elif args.model_name == "protocbm":
+        from saliency.wrapper import WrapperProtoCBM as ModelWrapper
+    else:
+        raise ValueError(f"Unknown model type: {args.model_name}")
+    
+    # load the model
+    loaded_model = torch.load(
+        args.model_path, 
+        map_location="cpu", 
+        weights_only=False
+    )
 
-    # determine the part which should be used for saliency
+    model_wrapped = ModelWrapper(loaded_model)
+    model_wrapped.eval()
 
 
     # iterate through the data
-    for batch in val_loader:
-        images, labels, attr = batch
-        print(f"Images shape: {images.shape}")
-        print(f"Labels shape: {labels.shape}")
-        print(f"Attributes shape: {len(attr)}")
+    sample_indices = [10, 20, 30]
+    for sample_index in sample_indices:
+        sample = val_dataset[sample_index]
 
-        print(attr)
+        sample_results = torch.ones((112, 32, 32))
+        input_tensor = sample["image"].unsqueeze(0)
+        for attr_index in range(112):
 
-        if args.model_type == "CBM":
-            from saliency.wrapper import WrapperCUB as ModelWrapper
-        else:
-            raise ValueError(f"Unknown model type: {args.model_type}")
-        
-        # load the model
-        loaded_model = torch.load(
-            args.model_path, 
-            map_location="cpu", 
-            weights_only=False
-        )
+            cam = saliency.calculate_cam(
+                model_wrapped,
+                input_tensor,
+                attr_index
+            )
 
-        model_wrapper = ModelWrapper(args.model_path)
-        
+            sample_results[attr_index] = cam
 
 
 
 
-        break  
 
 
+
+
+    """
+    config_path2 = "configs/cbm.yaml"
+    with open(config_path2) as f:
+        args2 = yaml.safe_load(f)
+
+    args2 = normalize_scientific_floats(args2)
+    args2 = Namespace(**args2, config_path=config_path2)
+
+
+    model2 = model_by_mode(args2)
+    model2.eval()
+    model2
+    """
