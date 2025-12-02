@@ -20,4 +20,5 @@ dependencies:
       - jinja2==3.1.6
       - pyyaml==6.0.3
       - tqdm==4.67.1
+      - captum==0.8.0
 prefix: /home/sb76faku/.conda/envs/protocbm
