@@ -85,8 +85,7 @@ def eval(args):
             attr_labels = torch.stack(attr_labels).t()  # N x A
 
             # Pass through model, get model prediction and saliency map per attribute
-            output = model(inputs.to(device))
-            pred, scores, saliency_maps = get_saliency_map_and_scores_and_prediction(output, args)
+            pred, scores, saliency_maps = get_saliency_map_and_scores_and_prediction(model, inputs, args)
 
             # Compute classification accuracy
             acc_sum += accuracy(pred, labels, topk=(1,))[0]
