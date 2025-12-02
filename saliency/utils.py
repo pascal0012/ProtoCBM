@@ -227,7 +227,6 @@ def find_fist_conv(model: nn.Module, n_last: int = 20):
     layer = None
     for i in list(model.state_dict().keys())[-n_last:][::-1]:
         if i.endswith("conv.weight"):
-            print(i)
             layer_name = i.replace(".weight", "")
             layer = model.get_submodule(layer_name)
             break
