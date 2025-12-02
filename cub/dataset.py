@@ -124,6 +124,14 @@ class CUBLocalizationDataset(Dataset):
         self.bird_BB_path = os.path.join(self.data_dir, "bounding_boxes.txt")
         self._create_localization_accuracy_dicts()
 
+        #done like this in case we dont hardcode transformations later
+        self.center_crop_size = None
+
+        for t in transform.transforms:
+            if isinstance(t, transforms.CenterCrop):
+                self.center_crop_size = t.size
+
+    
     def __len__(self):
         return len(self.data)
     
@@ -137,6 +145,8 @@ class CUBLocalizationDataset(Dataset):
         img_source_path = os.path.join(self.image_dir , "/".join(path_parts[cub_index+1:]))
         img = Image.open(img_source_path).convert('RGB')
 
+        og_img_w, og_img_h = img.size
+
         if self.transform:
             img = self.transform(img)
 
@@ -146,10 +156,41 @@ class CUBLocalizationDataset(Dataset):
 
         # Get localization data, i.e. part segmentation masks and bounding box data
         part_seg_masks = self._get_part_seg_masks(img_path, class_label)
-        part_bbs = self._get_bounding_box_data(img_source_path)
+        part_bbs = self._get_bounding_box_data(img_source_path, (og_img_w, og_img_h))
+
+        if self.center_crop_size != None:
+            #we have center crop adjust bounding boxes
+            part_bbs = self._adjust_to_center_crop(part_bbs, og_img_w, og_img_h, self.center_crop_size)
         
         return img, class_label, attr_label, part_seg_masks, part_bbs
 
+    def _adjust_to_center_crop(self, bounding_boxes, og_w, og_h, crop_size):
+        #print(crop_size, type(crop_size))
+        #adjusts bounding box coords to acknowledge center crop transformation
+        #bounding boxes is the [K, 4] tensor that comes from the bounding box creation in get_item
+        
+        left = (og_w - crop_size[0]) / 2
+        top  = (og_h - crop_size[1]) / 2
+
+        bounding_boxes = bounding_boxes.float()
+
+        # Shift all boxes in place
+        bounding_boxes[:, 0].sub_(left)  # xmin
+        bounding_boxes[:, 1].sub_(top)   # ymin
+        bounding_boxes[:, 2].sub_(left)  # xmax
+        bounding_boxes[:, 3].sub_(top)   # ymax
+
+        # Clip in place
+        bounding_boxes[:, 0].clamp_(0, crop_size[0])
+        bounding_boxes[:, 1].clamp_(0, crop_size[1])
+        bounding_boxes[:, 2].clamp_(0, crop_size[0])
+        bounding_boxes[:, 3].clamp_(0, crop_size[1])
+
+        bounding_boxes = bounding_boxes.round().short()
+
+        return bounding_boxes
+
+    
     def _get_part_seg_masks(self, img_path, class_label):
 
         # Only for 70 classes, the part segmentations exist, for any other classes, the masks will be zero-filled 
@@ -198,7 +239,7 @@ class CUBLocalizationDataset(Dataset):
         # Apply transformations to it (center crop like image, then binarize and add dummy channel dim)
         return self.mask_transform(mask)
     
-    def _get_bounding_box_data(self, img_path):
+   def _get_bounding_box_data(self, img_path, img_size):
         # Get image id [class path is also in mapping name]
         img_name = os.sep.join(img_path.split(os.sep)[-2:])
         img_id = self.imgName_to_imgID[img_name]
@@ -210,9 +251,9 @@ class CUBLocalizationDataset(Dataset):
         bird_bb = self.imgID_to_birdBB[img_id]
 
         # For each part get the gt bounding box, stack to one tensor
-        return torch.stack(self._get_BB_per_part(bird_bb, part_infos), dim=0) # [K, 4]
+        return torch.stack(self._get_BB_per_part(bird_bb, part_infos, img_size), dim=0) # [K, 4]
     
-    def _get_BB_per_part(self, bird_bb, part_infos, scale=4):
+   def _get_BB_per_part(self, bird_bb, part_infos, img_size, scale=4):
         # Generate a bounding box mask per part, empty if part is not visible
         # BB format returned is (x1, y1, x2, y2)
         width = bird_bb[2]
@@ -230,11 +271,11 @@ class CUBLocalizationDataset(Dataset):
             gt = (info[1], info[2])
             #change from x, y, w, h to x1, y1, x2, y2
             transformed_bird_BB = [bird_bb[0], bird_bb[1], bird_bb[0] + bird_bb[2], bird_bb[1] + bird_bb[3]]
-            part_masks.append(torch.tensor(self.get_KP_BB(gt, mask_h, mask_w, transformed_bird_BB), dtype=torch.int16))
-
+            part_masks.append(torch.tensor(self.get_KP_BB(gt, mask_h, mask_w, transformed_bird_BB, img_size), dtype=torch.int16))
+        
         return part_masks
 
-    def get_KP_BB(self, gt_point, mask_h, mask_w, bird_BB, KNOW_BIRD_BB=False):
+    def get_KP_BB(self, gt_point, mask_h, mask_w, bird_BB, img_size, KNOW_BIRD_BB=False):
         KP_best_x, KP_best_y = gt_point[0], gt_point[1]
         KP_x1 = KP_best_x - int(mask_w / 2)
         KP_x2 = KP_best_x + int(mask_w / 2)
@@ -243,7 +284,7 @@ class CUBLocalizationDataset(Dataset):
         if KNOW_BIRD_BB:
             Bound = bird_BB
         else:
-            Bound = [0, 0, 223, 223]
+            Bound = [0, 0, img_size[0], img_size[1]]
         if KP_x1 < Bound[0]:
             KP_x1, KP_x2 = Bound[0], Bound[0] + mask_w
         elif KP_x2 > Bound[2]:
