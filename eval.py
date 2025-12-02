@@ -12,7 +12,7 @@ import yaml
 from cub.dataset import CUBLocalizationDataset
 from cub.config import BASE_DIR
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics, create_mapping_attributes_to_part_seg_group
-from localization.visualise import visualise_part_segmentations
+from localization.visualise import visualise_part_segmentations, visualise_localization_acc_boxes
 from localization.localization_accuracy import calculate_average_partwise_localization_accuracy, compute_localization_accuracy, create_part_attribute_mapping_tensor
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
@@ -92,15 +92,15 @@ def eval(args):
             acc_count += 1
             
             # Compute localization accuracy and collect into our collector
-            compute_localization_accuracy(
-                scores,
-                saliency_maps,
-                part_bbs,
-                dataset.part_dict,
-                map_part_to_attr_loc_acc,
-                loc_acc_collector,
-                img_size=img_size
-            )
+            loc_optimal_masks_batch, _, loc_ious, loc_resized_heatmaps = compute_localization_accuracy(
+                                                                                                    scores,
+                                                                                                    saliency_maps,
+                                                                                                    part_bbs,
+                                                                                                    dataset.part_dict,
+                                                                                                    map_part_to_attr_loc_acc,
+                                                                                                    loc_acc_collector,
+                                                                                                    img_size=img_size
+                                                                                                )
 
             # Compute IoU between part segmentation masks and our saliency maps, for each attribute
             # Map out unmapped attributes from the saliency mask
@@ -115,6 +115,19 @@ def eval(args):
                 visualise_part_segmentations(
                     inputs, saliency_maps_upsampled, seg_masks_per_attribute, attribute_names,
                     data_idx, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg
+                )
+
+                visualise_localization_acc_boxes(
+                    inputs,
+                    loc_resized_heatmaps,
+                    loc_optimal_masks_batch,
+                    part_bbs,
+                    data_idx,
+                    loc_ious,
+                    list(dataset.part_dict.values()),
+		            t_mean=transform_mean,
+                    t_std=transform_std,
+                    save_path=args.out_dir_part_seg
                 )
 
     # Compute mIoU statistics for part segmentations
