@@ -15,14 +15,15 @@ def compute_localization_accuracy(
     img_size: int = 299,
 ):
     """
-        This method.... TODO
+        This method calculates the localization accuracy per part by computing the IoU between the predicted bounding boxes from the attention maps and the ground truth bounding boxes.
+        It is reimplemented based on the description in the SPDA-CNN/APN paper.
 
         Args:
-            pre_attri: TODO
-            attention: TODO
+            pre_attri: activations for each attribute in the model
+            attention: heatmaps/saliency maps per attribute, shape [B, A, H, W]
             part_bounding_boxes: The bounding box per part, for each image, as given by its coordinates [B, K, 4]
-            part_dict: TODO
-            part_attribute_mapping: TODO
+            part_dict: Mapping from part segmentation groups to CUB original parts
+            part_attribute_mapping: Mapping from CUB parts to relative attribute IDs. Amount of IDs should be A.
             collector_list: List to collect the mIoU results into.
             img_size: The image size.
         
@@ -123,10 +124,10 @@ def compute_optimal_masks_per_mask(heatmaps, part_bbs):
             best_x = (flat_idx % response.shape[1]).item()
 
             # Compute final bounding box
-            x1_opt = max(0, best_x - mask_w // 2)
-            y1_opt = max(0, best_y - mask_h // 2)
-            x2_opt = min(H, best_x + mask_w // 2)
-            y2_opt = min(W, best_y + mask_h // 2)
+            x1_opt = max(0, best_x)
+            y1_opt = max(0, best_y)
+            x2_opt = min(H, best_x + mask_w)
+            y2_opt = min(W, best_y + mask_h)
 
             boxes[b, k] = torch.tensor([x1_opt, y1_opt, x2_opt, y2_opt], device=device)
 
