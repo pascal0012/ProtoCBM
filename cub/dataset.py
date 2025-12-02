@@ -210,7 +210,7 @@ class CUBLocalizationDataset(Dataset):
         bird_bb = self.imgID_to_birdBB[img_id]
 
         # For each part get the gt bounding box, stack to one tensor
-        return torch.stack(self._get_BB_per_part(bird_bb, part_infos), dim=0)
+        return torch.stack(self._get_BB_per_part(bird_bb, part_infos), dim=0) # [K, 4]
     
     def _get_BB_per_part(self, bird_bb, part_infos, scale=4):
         # Generate a bounding box mask per part, empty if part is not visible

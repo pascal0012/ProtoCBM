@@ -5,7 +5,6 @@ import torch
 import torch.nn.functional as F
 
 
-#TO-DO: CUB parts to Sebbis seg groups mapping einbauen
 def compute_localization_accuracy(
     pre_attri: torch.FloatTensor,
     attention: torch.FloatTensor,
@@ -35,47 +34,31 @@ def compute_localization_accuracy(
     # required to be 0 indexed and correctly match the attribute order in the model
     #reimplementation of paper description
 
-    B = attention.size(0)
-    K = len(part_dict)
-
     #get argmax attribute per part
-    argmax_per_part = [] #max index per part, -1 if part not present
+    # Per part k \in K, get the argmax index (attribute idx that had the highest activation for that part) for each img in the batch
+    argmax_per_part = [] # max index per part, -1 if part not present
     for part in part_dict.values():
         #take argmax of each part group
         subset = pre_attri[:, part_attribute_mapping_tensor[part]]
         argmax_in_subset = subset.argmax(dim=1)
         result = part_attribute_mapping_tensor[part][argmax_in_subset] #now res should be batchsize shape
-
         argmax_per_part.append(result)
 
     # Create a mask to track which part bounding boxes are non-empty
     valid_mask = (bounding_box_per_part.sum(dim=-1) != 0)  # [B, K]
+    
+    # Take heatmaps: For each part, get the heatmap of the attribute belonging to that part that had the highest activation
+    # TODO: Check this if this is correct! Maybe need torch.gather
+    idx = torch.stack(tuple(argmax_per_part)) # [K, B]
+    idx = idx.t()  # [B, K]
+    batch_indices = torch.arange(attention.shape[0]).unsqueeze(1)
+    heatmaps = attention[batch_indices, idx] # [B, K, H, W] --> e.g. for inception: [B, 15, 8, 8]
 
-    # Take heatmaps
-    # TODO: What happens here, I think this is not correct and one should use torch.gather
-    # H, W = attention.shape
-    # heatmaps = attention.gather(1, idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, H, W))
-    idx = torch.stack(tuple(argmax_per_part)) #15xbatchsize
-    idx = idx.t() 
-    batch_indices = torch.arange(B).unsqueeze(1)
-    heatmaps = attention[batch_indices, idx] #should be batchisizex15x8x8
-
-    """
-    # Resize with opencv because original code does that
-    np_maps = heatmaps.cpu().numpy()
-    resized_heatmaps = np.zeros((heatmaps.shape[0], heatmaps.shape[1], img_size, img_size), dtype=np.float32)
-    for b in range(B):
-        for k in range(K):
-            resized_heatmaps[b, k] = cv2.resize(
-                np_maps[b, k],
-                (img_size, img_size)
-            )
-    """
     # Resize heatmaps to image size
     resized_heatmaps = torch.nn.functional.interpolate(heatmaps, size=img_size, mode='bilinear', align_corners=False)
 
     # Compute sliding window from heatmaps
-    optimal_masks_batch = compute_optimal_masks_per_mask(resized_heatmaps, bounding_box_per_part)
+    optimal_masks_batch = compute_optimal_masks_per_mask(resized_heatmaps, bounding_box_per_part) # [B, K, 4]
     optimal_masks_batch[~valid_mask] = 0
 
     # Get the IoU between the bounding boxes and our heatmaps, per part over all images, set to -1 for non-existing parts
