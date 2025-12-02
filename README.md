@@ -30,11 +30,13 @@ For the evaluation we use the part annotations introduced in [A Protocol for Eva
 wget https://github.com/hamedbehzadi/CUB70-PartSegmentationDataset/raw/main/AnnotationMasksPerclass.tar.xz
 ```
 
-The file has to be stored with the name AnnotationMasksPerclass in the same folder as the CUB dataset.
+After downloading the files shoul be extracted to CUB data directory in the part_segmentation folder.
 
 ```
-data/CUB_200_2011/part_segmentations/AnnotationMasksPerclass
+mkdir -p data/CUB_200_2011/part_segmentations/ &&
+tar -xJf AnnotationMasksPerclass.tar.xz -C data/CUB_200_2011/part_segmentations/
 ```
+
 
 ## Execution
 
