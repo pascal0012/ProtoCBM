@@ -1,19 +1,27 @@
 import torch
-import os
-
-import os
 import sys
+import os
+from typing import Dict, List, Union
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from utils.mappings import MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS, CBM_SELECTED_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
 
 
 # Build a mapping from old index -> new index
-def map_attribute_ids_from_cub_to_cbm(absolute_indices: list):
-    return [relative_index for relative_index, absolute_index in enumerate(CBM_SELECTED_CUB_ATTRIBUTE_IDS) if absolute_index in absolute_indices]
+def map_attribute_ids_from_cub_to_cbm(attr_ids: Union[List[int], Dict[str, int]]):
+    if isinstance(attr_ids, dict):
+        new_dict = {}
+        for group, ids in attr_ids.items():
+            new_dict[group] = map_attribute_ids_from_cub_to_cbm(ids)
+        return new_dict
+    elif isinstance(attr_ids, list):
+        return [relative_index for relative_index, absolute_index in enumerate(CBM_SELECTED_CUB_ATTRIBUTE_IDS) if absolute_index in attr_ids]
+    else:
+        raise TypeError()
 
 
-def map_attribute_ids_to_part_seg_group_id(batch_size, verbose=True):
+def map_attribute_ids_to_part_seg_group_id(verbose=True):
     """
         Creates a lookup tensor that, given the index of an attribute within our model output, maps it to its original attribute
         ID, maps it to the selected ones, and then maps it to the ID of its corresponding part segmentation group.

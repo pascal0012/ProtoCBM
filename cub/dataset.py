@@ -87,60 +87,75 @@ class CUBDataset(Dataset):
             return img, class_label, attr_label
 
 
-class CUBDatasetPartSegmentations(Dataset):
-    """
-    Returns a compatible Torch Dataset object customized for the CUB dataset
-    """
+class CUBLocalizationDataset(Dataset):
 
-    def __init__(self, test_pkl_path, image_dir, part_seg_dir, resol, transform):
+    def __init__(self, pkl_path, data_dir, img_size, transform):
         """
-        Arguments:
-        test_pkl_path: full path to test pkl
-        image_dir: default = 'images'. Will be append to the parent dir
-        part_seg_dir: Path to part segmentation directory
-        transform: whether to apply any special transformation. Default = None, i.e. use standard ImageNet preprocessing
+        Args:
+            pkl_path: Full path to test or validation pkl
+            data_dir: Full path to the data directory of the CUB dataset, should point to the root.
+            img_size: The image size, assumes quadratic images
+            transform: Transform to apply to the image.
         """
+
+        # Load pickled data
         self.data = []
-        assert "test" in test_pkl_path
-        self.data = pickle.load(open(test_pkl_path, 'rb'))
+        assert "test" in pkl_path or "val" in pkl_path
+        self.data = pickle.load(open(pkl_path, 'rb'))
 
-        # Filter data to remove all classes for which no part segmentations exist (--> class_label > 70), +1 as it is zero-indexed
-        self.data = [d for d in self.data if d.get("class_label") + 1 <= 70]
+        # Construct paths
+        self.data_dir = data_dir
+        self.image_dir = os.path.join(data_dir, "images")
+        self.part_seg_dir = os.path.join(data_dir, "part_segmentations")
 
+        # Create / store transforms
         self.transform = transform
-        self.resol = resol
-        self.image_dir = image_dir
-        self.part_seg_dir = part_seg_dir
-
+        self.img_size = img_size
         self.mask_transform = transforms.Compose([
-            transforms.CenterCrop(299),         
+            transforms.CenterCrop(self.img_size),         
             transforms.ToTensor(),                          
             lambda t: (t > 0.5).float()  # binarize
         ])
 
+        # Paths for localization accuracy, and create necessary dictionaries 
+        self.imgID_imgName_mapping_path = os.path.join(self.data_dir, "images.txt")
+        self.parts_locs_path = os.path.join(self.data_dir, "parts", "part_locs.txt") 
+        self.parts_mapping_path = os.path.join(self.data_dir, "parts", "parts.txt")
+        self.bird_BB_path = os.path.join(self.data_dir, "bounding_boxes.txt")
+        self._create_localization_accuracy_dicts()
+
     def __len__(self):
         return len(self.data)
-
-    def _load_mask(self, path_to_mask):
-        # Not all parts are segmented for each img (e.g. occlusion), fill with zeros
-        if not os.path.exists(path_to_mask):
-            return torch.zeros(1, self.resol, self.resol, dtype=torch.float32)
-
-        # If it exists: get part segmentation mask for this image / part pair
-        mask = Image.open(path_to_mask).convert("L")  # 'L' = grayscale
-
-        # Apply transformations to it (center crop like image, then binarize and add dummy channel dim)
-        return self.mask_transform(mask)
     
     def __getitem__(self, idx):
         img_data = self.data[idx]
         img_path = img_data['img_path']
         
-        # Trim unnecessary paths
+        # Trim unnecessary paths, load image
         path_parts = img_path.split('/')
         cub_index = path_parts.index("images")
         img_source_path = os.path.join(self.image_dir , "/".join(path_parts[cub_index+1:]))
         img = Image.open(img_source_path).convert('RGB')
+
+        if self.transform:
+            img = self.transform(img)
+
+        # Get class and attribute labels
+        class_label = img_data['class_label']
+        attr_label = img_data['attribute_label']
+
+        # Get localization data, i.e. part segmentation masks and bounding box data
+        part_seg_masks = self._get_part_seg_masks(img_path, class_label)
+        part_bbs = self._get_bounding_box_data(img_source_path)
+        
+        return img, class_label, attr_label, part_seg_masks, part_bbs
+
+    def _get_part_seg_masks(self, img_path, class_label):
+
+        # Only for 70 classes, the part segmentations exist, for any other classes, the masks will be zero-filled 
+        # (--> class_label > 70), +1 as it is zero-indexed
+        if class_label + 1 > 70:
+            return torch.zeros(len(PART_SEG_GROUPS), self.img_size, self.img_size, dtype=torch.float32)
 
         # Get the class number, e.g. 002 for Laysan_Albatross, strip initial numbers, also get img name w/out extension
         class_nr = str(int(img_path.split("/")[-2][:3]))
@@ -170,12 +185,125 @@ class CUBDatasetPartSegmentations(Dataset):
                 combined_mask = ((tmp_masks[0] > 0) | (tmp_masks[1] > 0)).to(tmp_masks[0].dtype)
             part_lst.append(combined_mask)
 
-        part_seg_masks = torch.cat(part_lst, dim=0)  # (num_parts, H, W)
+        return torch.cat(part_lst, dim=0)  # (num_parts, H, W)
 
-        class_label = img_data['class_label']
+    def _load_mask(self, path_to_mask):
+        # Not all parts are segmented for each img (e.g. occlusion), fill with zeros
+        if not os.path.exists(path_to_mask):
+            return torch.zeros(1, self.img_size, self.img_size, dtype=torch.float32)
 
-        attr_label = img_data['attribute_label']
-        return img, class_label, attr_label, part_seg_masks
+        # If it exists: get part segmentation mask for this image / part pair
+        mask = Image.open(path_to_mask).convert("L")  # 'L' = grayscale
+
+        # Apply transformations to it (center crop like image, then binarize and add dummy channel dim)
+        return self.mask_transform(mask)
+    
+    def _get_bounding_box_data(self, img_path):
+        # Get image id [class path is also in mapping name]
+        img_name = os.sep.join(img_path.split(os.sep)[-2:])
+        img_id = self.imgName_to_imgID[img_name]
+
+        # Get location and visibility infos of parts of image
+        part_infos = self.img_id_to_part_locs[img_id]
+
+        # Get bird bb, fun fact readme says it is x, y, width, height, but APN later wants x1, y1, x2, y2
+        bird_bb = self.imgID_to_birdBB[img_id]
+
+        # For each part get the gt bounding box, stack to one tensor
+        return torch.stack(self._get_BB_per_part(bird_bb, part_infos), dim=0) # [K, 4]
+    
+    def _get_BB_per_part(self, bird_bb, part_infos, scale=4):
+        # Generate a bounding box mask per part, empty if part is not visible
+        # BB format returned is (x1, y1, x2, y2)
+        width = bird_bb[2]
+        height = bird_bb[3]
+
+        mask_w = width / scale
+        mask_h = height / scale
+
+        part_masks = []
+        for info in part_infos:
+            #info: part_id, x1, y1, visible
+            if info[-1] == 0.0: #part not visible, no gt
+                part_masks.append(torch.zeros(4, dtype=torch.int16)) # Must fill with dummy values for batching
+                continue
+            gt = (info[1], info[2])
+            #change from x, y, w, h to x1, y1, x2, y2
+            transformed_bird_BB = [bird_bb[0], bird_bb[1], bird_bb[0] + bird_bb[2], bird_bb[1] + bird_bb[3]]
+            part_masks.append(torch.tensor(self.get_KP_BB(gt, mask_h, mask_w, transformed_bird_BB), dtype=torch.int16))
+
+        return part_masks
+
+    def get_KP_BB(self, gt_point, mask_h, mask_w, bird_BB, KNOW_BIRD_BB=False):
+        KP_best_x, KP_best_y = gt_point[0], gt_point[1]
+        KP_x1 = KP_best_x - int(mask_w / 2)
+        KP_x2 = KP_best_x + int(mask_w / 2)
+        KP_y1 = KP_best_y - int(mask_h / 2)
+        KP_y2 = KP_best_y + int(mask_h / 2)
+        if KNOW_BIRD_BB:
+            Bound = bird_BB
+        else:
+            Bound = [0, 0, 223, 223]
+        if KP_x1 < Bound[0]:
+            KP_x1, KP_x2 = Bound[0], Bound[0] + mask_w
+        elif KP_x2 > Bound[2]:
+            KP_x1, KP_x2 = Bound[2] - mask_w, Bound[2]
+        if KP_y1 < Bound[1]:
+            KP_y1, KP_y2 = Bound[1], Bound[1] + mask_h
+        elif KP_y2 > Bound[3]:
+            KP_y1, KP_y2 = Bound[3] - mask_h, Bound[3]
+        return [KP_x1, KP_y1, KP_x2, KP_y2]#{'x1': KP_x1, 'x2': KP_x2, 'y1': KP_y1, 'y2': KP_y2}
+
+    def _create_localization_accuracy_dicts(self):
+
+        # Maps part ID to part name
+        self.part_dict = {}
+        with open(self.parts_mapping_path) as ps:
+            for line in ps:
+                line = line.strip()
+                id, part_name = line.split(" ", maxsplit=1)
+                self.part_dict[int(id)] = part_name
+                
+        # Maps image id to image name
+        # read here later into dictionary
+        self.imgName_to_imgID = {}
+        with open(self.imgID_imgName_mapping_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                id_str, *text_parts = line.split()
+                key = " ".join(text_parts)
+                self.imgName_to_imgID[key] = int(id_str)
+
+        # Information about parts bounding boxes and in-image occurence
+        self.img_id_to_part_locs = {}
+        with open(self.parts_locs_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                id_str, *info = line.split()
+                
+                info = [float(x) for x in info]
+
+                if int(id_str) not in self.img_id_to_part_locs:
+                    self.img_id_to_part_locs[int(id_str)] = [info]
+                else:
+                    self.img_id_to_part_locs[int(id_str)] = self.img_id_to_part_locs[int(id_str)] + [info]
+
+        # Information about bird bounding boxes per image id
+        self.imgID_to_birdBB = {}
+        with open(self.bird_BB_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                id_str, *bb_info = line.split()
+
+                bb_info = [float(x) for x in bb_info]
+                
+                self.imgID_to_birdBB[int(id_str)] = bb_info
 
 
 # TODO: load pkl from path + corresponding file name

@@ -10,7 +10,7 @@ def get_eval_transform_for_model(model: nn.Module, args: Namespace):
     if args.model_name == "cbm" or args.model_name == "protocbm":
         transform_mean = 0.5
         transform_std = 2
-        img_size = model.backbone.img_size
+        img_size = model.backbone.image_size
         transform = transforms.Compose([
             transforms.CenterCrop(img_size), # Resolution
             transforms.ToTensor(), #implicitly divides by 255

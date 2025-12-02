@@ -3,20 +3,23 @@ Evaluate trained models on the official CUB test set
 """
 
 import os
-import sys
 import torch
 import argparse
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 import yaml
 
-from cub.dataset import CUBDatasetPartSegmentations
-from cub.config import BASE_DIR, N_ATTRIBUTES
+from cub.dataset import CUBLocalizationDataset
+from cub.config import BASE_DIR
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics, create_mapping_attributes_to_part_seg_group
 from localization.visualise import visualise_part_segmentations
-from models.apn_baseline import create_apn_baseline
-from saliency.saliency import get_saliency_map_and_prediction
+from localization.localization_accuracy import calculate_average_partwise_localization_accuracy, compute_localization_accuracy, create_part_attribute_mapping_tensor
+from models.apn_baseline import load_apn_baseline
+from saliency.saliency import get_saliency_map_and_scores_and_prediction
+from utils.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS
+from utils.index_translation import map_attribute_ids_from_cub_to_cbm
 from utils.eval_utils import get_eval_transform_for_model
-from utils.train_utils import prepare_model, model_by_mode
+from utils.train_utils import accuracy, prepare_model, model_by_mode
 
 
 def create_model(args):
@@ -25,7 +28,7 @@ def create_model(args):
     elif args.model_name == "cbm":
         model = model_by_mode(args)
     elif args.model_name == "apn":
-        model = create_apn_baseline(args)
+        model = load_apn_baseline(args)
     else:
         raise ValueError("")
     return model
@@ -38,17 +41,16 @@ def eval(args):
 
     # Create the model and load weights
     model = create_model(args)
-    model = torch.load(os.path.join(args.log_dir, "best_model_1.pth"))
-    model = prepare_model(model)
-    device = model.device
+    model, device = prepare_model(model, args)
     model.eval()
 
     transform, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
     # TODO: APN uses 312 attributes, ours only 112, so adjust the code to work for both
 
     # Data management
-    data_dir = os.path.join(BASE_DIR, args.data_dir, 'test.pkl')
-    dataset = CUBDatasetPartSegmentations(data_dir, args.use_attr, args.image_dir, args.part_seg_dir, img_size, transform)
+    pkl_path = os.path.join(BASE_DIR, args.split_dir)
+    data_dir = os.path.join(BASE_DIR, args.data_dir)
+    dataset = CUBLocalizationDataset(pkl_path, data_dir, img_size, transform)
     loader = DataLoader(
         dataset, 
         batch_size=args.batch_size, 
@@ -60,27 +62,52 @@ def eval(args):
     )
 
     # Creates a mapping tensor of attribute ids to their respective part segmentation group, removes unmatched entries, returns kept attribute names
-    map_attr_id_to_part_seg_group, attribute_names = create_mapping_attributes_to_part_seg_group(args.image_dir, device)
+    map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = create_mapping_attributes_to_part_seg_group(args.data_dir, device)
 
-    # Collecting IoU values across batches for proper mean
+    # Create a mapping tensor for the localization accuracy as well
+    loc_acc_collector = []
+    map_parts_to_attributes = map_attribute_ids_from_cub_to_cbm(MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS)
+    map_part_to_attr_loc_acc = create_part_attribute_mapping_tensor(map_parts_to_attributes, device)
+
+    # Collecting IoU and accuracy values across batches for proper mean
     iou_sum_per_attr = torch.zeros(len(attribute_names), device=device)
     iou_count_per_attr = torch.zeros(len(attribute_names), device=device)
+    acc_sum = 0
+    acc_count = 0
 
     with torch.no_grad():
-        for data_idx, data in enumerate(loader):
+        for data_idx, data in enumerate(tqdm(loader, desc="Evaluating batches")):
 
             # Cast data to device
             data = [v.to(device) if torch.is_tensor(v) else v for v in data]
 
-            inputs, labels, attr_labels, part_seg_masks = data
+            inputs, labels, attr_labels, part_seg_masks, part_bbs = data
             attr_labels = torch.stack(attr_labels).t()  # N x A
 
-            # Pass through model, get model prediction and saliency map
+            # Pass through model, get model prediction and saliency map per attribute
             output = model(inputs.to(device))
-            saliency_maps = get_saliency_map_and_prediction(output, args)
+            pred, scores, saliency_maps = get_saliency_map_and_scores_and_prediction(output, args)
+
+            # Compute classification accuracy
+            acc_sum += accuracy(pred, labels, topk=(1,))[0]
+            acc_count += 1
+            
+            # Compute localization accuracy and collect into our collector
+            compute_localization_accuracy(
+                scores,
+                saliency_maps,
+                part_bbs,
+                dataset.part_dict,
+                map_part_to_attr_loc_acc,
+                loc_acc_collector,
+                img_size=img_size
+            )
 
             # Compute IoU between part segmentation masks and our saliency maps, for each attribute
-            spr, cpr, saliency_maps_upsampled, seg_masks_per_attribute = compute_IoU_to_seg_masks(saliency_maps, part_seg_masks, )
+            # Map out unmapped attributes from the saliency mask
+            spr, cpr, saliency_maps_upsampled, seg_masks_per_attribute = compute_IoU_to_seg_masks(
+                saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group
+            )
             iou_sum_per_attr += spr
             iou_count_per_attr += cpr
 
@@ -91,8 +118,16 @@ def eval(args):
                     data_idx, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg
                 )
 
-    # Compute mIoU statistics
+    # Compute mIoU statistics for part segmentations
     compute_mIoU_statistics(iou_sum_per_attr, iou_count_per_attr, attribute_names, map_attr_id_to_part_seg_group)
+
+    # Compute part localization statistics, considering our grouping of attributes to groups.
+    calculate_average_partwise_localization_accuracy(loc_acc_collector, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS, IoU_thr=args.IoU_threshold)
+
+    # Compute mean classification accuracy and print
+    mean_acc = acc_sum / (acc_count + 1e-7)
+    print("\n--------- CLASSIFICATION ACCURACY ---------\n")
+    print(f"Mean Classification Accuracy: {mean_acc.item():.4f}")
 
 
 if __name__ == '__main__':
@@ -119,10 +154,6 @@ if __name__ == '__main__':
     out_folder_path = os.path.join(args.log_dir, "part_seg_vis")
     os.makedirs(out_folder_path, exist_ok=True)
     args.out_dir_part_seg = out_folder_path
-
-    # Create .txt for output of this script, write everything to there
-    log_file = os.path.join(args.log_dir, "eval.txt")
-    sys.stdout = open(log_file, "w")
 
     # Run main evaluation
     eval(args)

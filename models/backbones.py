@@ -8,7 +8,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from models.components import BasicConv2d, FC, InceptionA, InceptionB, InceptionC, InceptionD, InceptionE
+from models.components import BasicConv2d, InceptionA, InceptionB, InceptionC, InceptionD, InceptionE
 
 
 BACKBONE_URLS = {

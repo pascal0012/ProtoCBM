@@ -98,7 +98,5 @@ class resnet_proto_IoU(nn.Module):
                 p.requires_grad = fine_tune
 
 
-def load_apn_baseline(model_path: str, resnet_path: str, train=False):
-    model = resnet_proto_IoU(resnet_path, train=train)
-    model.load_state_dict(torch.load(model_path))
-    return model
+def load_apn_baseline(args, train=False):
+    return resnet_proto_IoU(args.backbone_dir, train=train)

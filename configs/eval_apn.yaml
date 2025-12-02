@@ -1,25 +1,19 @@
 mode: XCY   # XY and XC and CY
-n_attributes: 112
+n_attributes: 312
 
-model_name: protocbm
+model_name: apn
 concept_mapper: protomod
 concept_activation: none    # "relu" or "sigmoid"
 
 saliency_method: attention
 IoU_threshold: 0.5
 
-log_dir: outputs/ProtoCBM
+log_dir: outputs/APN
 data_dir: data/CUB_200_2011
 split_dir: data/CUB_processed/class_attr_data_10/test.pkl
+backbone_dir: outputs/APN/resnet101_cub.pth.tar
+apn_weights_dir: 
 vis_every_n: 15
 seed: 1
 
 batch_size: 16
-use_aux: false
-
-backbone: inception
-backbone_pretrained: true
-backbone_freeze: true
-expand_dim: 0
-
-proto_n_vectors: 1
