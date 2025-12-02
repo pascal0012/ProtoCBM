@@ -1,7 +1,115 @@
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
 import numpy as np
 import os
 import random
+
+
+
+def visualise_localization_acc_boxes(
+    imgs,
+    saliency_maps,
+    predicted_bounding_boxes,
+    gt_part_boxes,
+    batch_nr,
+    batch_ious,
+    part_names,
+    batch_idx=None,
+    t_mean=0.5,
+    t_std=2,
+    save_path=""
+):
+    """
+        Takes image, visualizes all bounding boxes for given parts and the heatmaps with predicted bounding boxes
+
+        imgs: torch.Tensor of [B, C, H, W] the respective images
+        saliency_maps: torch.Tensor of [B, K, H, W] of the saliency maps matched to the segmentation mask shape, per attribute A
+        predicted_bounding_boxes: torch.Tensor of [B, K, 4], the bounding boxes per CUB part K, BB shape (x1, y1, x2, y2)
+        part_boxes: torch.IntTensor of [B, K, 4], the ground truth bounding boxes per CUB part K, BB shape (x1, y1, x2, y2)
+        batch_nr: The current batch we are looking at
+        batch_ious: Tensor of shape [B, K], the IoU values for each part in this batch
+        part_names: A list of part names that are to be visualized.
+        batch_idx: The index in the batch from which we extract images, defaults to random one
+        t_mean: The mean applied during preprocessing of the image
+        t_std: The std applied during preprocessing of the image
+        save_path: Path where to save the visualizations
+    """
+
+    B, A, H, W = saliency_maps.shape
+    # Sample random batches / attributes if none are provided
+    if batch_idx is None:
+        batch_idx = random.randint(0, B-1)
+    n_parts = predicted_bounding_boxes.shape[1]
+
+
+    img = imgs[batch_idx]
+    masks = saliency_maps[batch_idx]
+    predicted_bounding_boxes = predicted_bounding_boxes[batch_idx]
+    gt_part_boxes = gt_part_boxes[batch_idx]
+    ious = batch_ious[batch_idx]
+
+    # Denorm image
+    img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
+    img_np = img_np * np.array(t_std) + np.array(t_mean)
+    img_np = np.clip(img_np, 0, 1)
+
+    fig, axes = plt.subplots(2, n_parts, figsize=(2*n_parts, 5))
+
+    for col in range(n_parts):
+        iou = ious[col].item()
+        # Part name
+        axes[0, col].set_title("{}: IoU {}".format(part_names[col], round(iou, 4)), fontsize=10, pad=4)
+
+        # Image with BB
+        axes[0, col].imshow(img_np)
+        axes[0, col].axis('off')
+
+        gt_box = gt_part_boxes[col].cpu().detach().numpy()
+        x1, y1, x2, y2 = gt_box
+        width  = x2 - x1
+        height = y2 - y1
+
+        rect = patches.Rectangle(
+            (x1, y1),     # Bottom-left corner
+            width,
+            height,
+            linewidth=2,
+            edgecolor='red',
+            facecolor='none'
+        )
+        axes[0, col].add_patch(rect)
+
+    
+        # Segmentation mask with BB
+        attn_mask = masks[col].cpu().detach().numpy()
+        axes[1, col].imshow(attn_mask, cmap='jet')
+        axes[1, col].axis('off')
+
+        pred_box = predicted_bounding_boxes[col].cpu().detach().numpy()
+        x1, y1, x2, y2 = pred_box
+        width  = x2 - x1
+        height = y2 - y1
+
+        rect = patches.Rectangle(
+            (x1, y1),     # Bottom-left corner
+            width,
+            height,
+            linewidth=2,
+            edgecolor='black',
+            facecolor='none'
+        )
+        axes[1, col].add_patch(rect)
+
+
+    axes[0, 0].set_ylabel("Image with GT BB")
+    axes[1, 0].set_ylabel("Attention with Pred BB")
+
+    # Create string for this img
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, f"b{batch_nr}_id{batch_idx}_part_viz.png"), dpi=200, bbox_inches='tight')
+    plt.close()
+
 
 
 def visualise_part_segmentations(
