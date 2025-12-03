@@ -87,7 +87,8 @@ def eval(args):
 
             # Pass through model, get model prediction and saliency map per attribute
             pred, scores, saliency_maps = get_saliency_map_and_scores_and_prediction(model, inputs, args)
-
+            saliency_maps = saliency_maps.to(device)
+            
             # Compute classification accuracy
             acc_sum += accuracy(pred, labels, topk=(1,))[0]
             acc_count += 1

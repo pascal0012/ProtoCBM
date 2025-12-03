@@ -52,9 +52,16 @@ def compute_localization_accuracy(
     # TODO: Check this if this is correct! Maybe need torch.gather
     idx = torch.stack(tuple(argmax_per_part)) # [K, B]
     idx = idx.t()  # [B, K]
-    batch_indices = torch.arange(attention.shape[0]).unsqueeze(1)
-    heatmaps = attention[batch_indices, idx] # [B, K, H, W] --> e.g. for inception: [B, 15, 8, 8]
 
+    attention = attention.to(idx.device)
+    batch_indices = torch.arange(attention.shape[0]).unsqueeze(1)
+    print("Before batch indices device: ", batch_indices.device)
+    batch_indices = batch_indices.to(idx.device)
+    print("attention decive: ", attention.device)
+    print("idx device: ", idx.device)
+    print("batch indices device: ", batch_indices.device)
+    heatmaps = attention[batch_indices, idx] # [B, K, H, W] --> e.g. for inception: [B, 15, 8, 8]
+    
     # Resize heatmaps to image size
     resized_heatmaps = torch.nn.functional.interpolate(heatmaps, size=img_size, mode='bilinear', align_corners=False)
 

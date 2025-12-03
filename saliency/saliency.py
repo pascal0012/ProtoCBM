@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from captum.attr import LayerAttribution, LayerGradCam
 
+from tqdm import tqdm
 from saliency.utils import find_fist_conv
 
 
@@ -20,7 +21,7 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
         scores: The per-attribute scores [B, A]
         map: The saliency map of the provided method [B, A, H, W]
     """
-    preds, similarity_scores, attention_maps = model(inputs.to(model.device))
+    preds, similarity_scores, attention_maps = model(inputs)
 
     if args.saliency_method == "attention":
         if args.concept_mapper != "protomod":
@@ -31,6 +32,7 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
         return preds, similarity_scores, new_maps
 
     elif args.saliency_method == "cam":
+        print("Uing CAM saliency method...")
         if args.model_name == "protocbm":
             from saliency.wrapper import WrapperProtoCBM
 
@@ -42,7 +44,7 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
         
         # iterate over the attributes and calculate CAMs
         attribute_maps = torch.ones((args.batch_size, args.n_attributes, 8, 8))
-        for target in range(args.n_attributes):
+        for target in tqdm(range(args.n_attributes), desc="Calculating CAMs"):
             current_cam = calculate_cam(wrapped_model, inputs, target=target)
             attribute_maps[:, target] = current_cam[:, 0, :, :]
 
