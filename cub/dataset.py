@@ -122,10 +122,13 @@ class CUBLocalizationDataset(Dataset):
 
         #done like this in case we dont hardcode transformations later
         self.center_crop_size = None
+        self.resize_size = None
 
         for t in transform.transforms:
             if isinstance(t, transforms.CenterCrop):
                 self.center_crop_size = t.size
+            if isinstance(t, transforms.Resize):
+                self.resize_size = t.size
     
     def __len__(self):
         return len(self.data)
@@ -153,11 +156,36 @@ class CUBLocalizationDataset(Dataset):
         part_seg_masks = self._get_part_seg_masks(img_path, class_label)
         part_bbs = self._get_bounding_box_data(img_source_path, (og_img_w, og_img_h))
 
+        #uncomment this for resize adjustment
+        #if self.resize_size != None:
+            #adjust boxes to resizing
+            #part_bbs = self.resize_bounding_boxes(part_bbs, [og_img_w, og_img_h], self.resize_size)
+            #og_img_w, og_img_h = self.resize_size
+
         if self.center_crop_size != None:
             #we have center crop adjust bounding boxes
             part_bbs = self._adjust_to_center_crop(part_bbs, og_img_w, og_img_h, self.center_crop_size)
         
         return img, class_label, attr_label, part_seg_masks, part_bbs
+
+    def resize_bounding_boxes(self, box_tensor, og_size, new_size):
+        #adjusts the BBs to resize transform
+        # og_size -> W, H
+        #new_size _> W, H
+
+        scale_x = new_size[0] / og_size[0]
+        scale_y = new_size[1] / og_size[1]
+
+        boxes = box_tensor.clone()
+
+        # apply scaling only to non-zero boxes
+        boxes[:, 0] *= scale_x  # x1
+        boxes[:, 2] *= scale_x  # x2
+        boxes[:, 1] *= scale_y  # y1
+        boxes[:, 3] *= scale_y  # y2
+
+        return boxes
+
 
     def _adjust_to_center_crop(self, bounding_boxes, og_w, og_h, crop_size):
         #print(crop_size, type(crop_size))
