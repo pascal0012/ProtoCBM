@@ -79,6 +79,8 @@ def compute_localization_accuracy(
         sub_res = dict(zip(list(part_dict.values()), ious[i].tolist()))
         collector_list.append(sub_res)
 
+    return optimal_masks_batch, bounding_box_per_part, ious, resized_heatmaps
+
 
 def create_part_attribute_mapping_tensor(part_attribute_mapping: Dict[str, List[int]], device):
     part_attribute_mapping_tensor = {}
