@@ -18,10 +18,8 @@ from models.models import ModelXtoC, ModelXtoCtoY, ModelXtoY
 def prepare_model(model: nn.Module, args: Namespace, load_weights: bool = False):
     # Load in weights, if any
     if load_weights:
-        if args.model_name == "apn":
-            model.load_state_dict(torch.load(args.backbone_dir))
-        else:
-            model.load_state_dict(torch.load(os.path.join(args.log_dir, "best_model_1.pth")))
+        path_to_weights = args.apn_weights_dir if args.model_name == "apn" else os.path.join(args.log_dir, "best_model_1.pth")
+        model.load_state_dict(torch.load(path_to_weights))
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)

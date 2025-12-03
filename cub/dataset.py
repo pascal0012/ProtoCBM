@@ -88,13 +88,14 @@ class CUBDataset(Dataset):
 
 class CUBLocalizationDataset(Dataset):
 
-    def __init__(self, pkl_path, data_dir, img_size, transform):
+    def __init__(self, pkl_path, data_dir, img_size, transform, mask_transform):
         """
         Args:
             pkl_path: Full path to test or validation pkl
             data_dir: Full path to the data directory of the CUB dataset, should point to the root.
             img_size: The image size, assumes quadratic images
             transform: Transform to apply to the image.
+            mask_transform: The transformation to apply to the segmentation masks. The spatial transforms must match that of the image transform.
         """
 
         # Load pickled data
@@ -110,11 +111,7 @@ class CUBLocalizationDataset(Dataset):
         # Create / store transforms
         self.transform = transform
         self.img_size = img_size
-        self.mask_transform = transforms.Compose([
-            transforms.CenterCrop(self.img_size),         
-            transforms.ToTensor(),                          
-            lambda t: (t > 0.5).float()  # binarize
-        ])
+        self.mask_transform = mask_transform
 
         # Paths for localization accuracy, and create necessary dictionaries 
         self.imgID_imgName_mapping_path = os.path.join(self.data_dir, "images.txt")
