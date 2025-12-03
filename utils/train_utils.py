@@ -1,4 +1,7 @@
 from argparse import Namespace
+import argparse
+
+import yaml
 import torch
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
@@ -8,6 +11,7 @@ import sys
 
 import os
 import sys
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from losses import ProtoModLoss
@@ -78,9 +82,9 @@ def model_by_mode(args: Namespace) -> nn.Module:
     elif args.mode == "XC":
         model = ModelXtoC(args)
     elif args.mode == "CY":
-        model = ModelXtoCtoY(args)  
+        model = ModelXtoCtoY(args)
         raise NotImplementedError("CY mode not implemented yet")
-    
+
     else:
         raise ValueError(f"Unknown mode {args.mode}")
 
@@ -93,7 +97,9 @@ def create_criterions(model: nn.Module, args: Namespace):
     ), "Model does not have a concept mapper for ProtoModLoss"
 
     cross_entropy = nn.CrossEntropyLoss()
-    protomod_criterion = ProtoModLoss(model.concept_mapper, model.backbone.output_map_size, args)
+    protomod_criterion = ProtoModLoss(
+        model.concept_mapper, model.backbone.output_map_size, args
+    )
 
     return cross_entropy, protomod_criterion
 
@@ -107,7 +113,7 @@ class Logger(object):
         self.console = sys.stdout
         self.file = None
         if fpath is not None:
-            self.file = open(fpath, 'w')
+            self.file = open(fpath, "w")
 
     def __del__(self):
         self.close()
@@ -154,7 +160,8 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-    
+
+
 class LossMeter(object):
     """
     Computes and stores the average and current value for multiple losses.
@@ -166,13 +173,15 @@ class LossMeter(object):
         self.reset()
 
     def reset(self):
-        self.val = np.array([0. for _ in range(self.n_losses)])
-        self.avg = np.array([0. for _ in range(self.n_losses)])
-        self.sum = np.array([0. for _ in range(self.n_losses)])
+        self.val = np.array([0.0 for _ in range(self.n_losses)])
+        self.avg = np.array([0.0 for _ in range(self.n_losses)])
+        self.sum = np.array([0.0 for _ in range(self.n_losses)])
         self.count = 0
 
     def update(self, val, n=1):
-        assert len(val) == len(self.loss_labels), "Loss labels and loss values must be of same length."
+        assert len(val) == len(self.loss_labels), (
+            "Loss labels and loss values must be of same length."
+        )
         self.val = val
         self.sum += val * n
         self.count += n
@@ -221,8 +230,8 @@ def compute_accuracies(
 
 def normalize_scientific_floats(cfg):
     """
-        Recursively convert strings that contain 'e' and look like floats into floats to parse
-        yaml arguments like 1e9 into their proper float.
+    Recursively convert strings that contain 'e' and look like floats into floats to parse
+    yaml arguments like 1e9 into their proper float.
     """
     if isinstance(cfg, dict):
         return {k: normalize_scientific_floats(v) for k, v in cfg.items()}
@@ -232,6 +241,28 @@ def normalize_scientific_floats(cfg):
         try:
             return float(cfg)
         except ValueError:
-            return cfg 
+            return cfg
     else:
         return cfg
+
+
+def gather_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        default="configs/debug.yaml",
+        help="Path to config file (YAML)",
+    )
+    cli_args = parser.parse_args()
+
+    # Load the config yaml
+    with open(cli_args.config) as f:
+        args = yaml.safe_load(f)
+    args = normalize_scientific_floats(args)
+
+    # Add run name, keep as namespace to be able to access like args.param
+    args = Namespace(**args, config_path=cli_args.config)
+
+    return args
