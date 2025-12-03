@@ -4,7 +4,6 @@ Evaluate trained models on the official CUB test set
 
 import os
 import torch
-import argparse
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import yaml
@@ -19,7 +18,7 @@ from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS
 from utils.index_translation import map_attribute_ids_from_cub_to_cbm
 from utils.eval_utils import get_eval_transform_for_model
-from utils.train_utils import accuracy, prepare_model, model_by_mode
+from utils.train_utils import accuracy, prepare_model, model_by_mode, gather_args
 from utils.perf import Timer
 
 
@@ -154,22 +153,7 @@ def eval(args):
 if __name__ == '__main__':
     torch.backends.cudnn.benchmark=True
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        default="configs/eval_protocbm.yaml",
-        help="Path to evaluation config file (YAML)",
-    )
-    cli_args = parser.parse_args()
-
-    # Load the config yaml
-    with open(cli_args.config) as f:
-        args = yaml.safe_load(f)
-
-    # Add run name, keep as namespace to be able to access like args.param
-    args = argparse.Namespace(**args, config_path=cli_args.config)
+    args = gather_args()
 
     # Create out folder for any visualizations
     out_folder_path = os.path.join(args.log_dir, "visualization")
