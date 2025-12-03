@@ -22,6 +22,7 @@ from utils.eval_utils import get_eval_transform_for_model
 from utils.train_utils import accuracy, prepare_model, model_by_mode
 from utils.perf import Timer
 
+
 def create_model(args):
     if args.model_name == "protocbm":
         model = model_by_mode(args)
@@ -45,13 +46,12 @@ def eval(args):
         model, device = prepare_model(model, args)
         model.eval()
 
-    transform, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
-    # TODO: APN uses 312 attributes, ours only 112, so adjust the code to work for both
+    transform, mask_transform, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
 
     # Data management
     pkl_path = os.path.join(BASE_DIR, args.split_dir)
     data_dir = os.path.join(BASE_DIR, args.data_dir)
-    dataset = CUBLocalizationDataset(pkl_path, data_dir, img_size, transform)
+    dataset = CUBLocalizationDataset(pkl_path, data_dir, img_size, transform, mask_transform)
     loader = DataLoader(
         dataset, 
         batch_size=args.batch_size, 
@@ -62,8 +62,12 @@ def eval(args):
         persistent_workers=True,
     )
 
-    # Creates a mapping tensor of attribute ids to their respective part segmentation group, removes unmatched entries, returns kept attribute names
-    map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = create_mapping_attributes_to_part_seg_group(args.data_dir, device)
+    # Creates a mapping tensor of attribute ids to their respective part segmentation group removes unmatched entries, returns kept attribute names
+    map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = create_mapping_attributes_to_part_seg_group(
+        args.data_dir,
+        device,
+        only_cbm_attributes = "cbm" in args.model_name  # Keep all CUB attributes or use only those as used by CBM?
+    )
 
     # Create a mapping tensor for the localization accuracy as well
     loc_acc_collector = []
@@ -112,8 +116,11 @@ def eval(args):
             iou_sum_per_attr += spr
             iou_count_per_attr += cpr
 
+            if data_idx > 12:
+                break
+
             # Visualise part segmentations with saliency
-            if data_idx % args.vis_every_n == 0:
+            if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
                 visualise_part_segmentations(
                     inputs, saliency_maps_upsampled, seg_masks_per_attribute, attribute_names,
                     data_idx, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg
@@ -164,8 +171,8 @@ if __name__ == '__main__':
     # Add run name, keep as namespace to be able to access like args.param
     args = argparse.Namespace(**args, config_path=cli_args.config)
 
-    # Create out folder for the part segmentation visualization
-    out_folder_path = os.path.join(args.log_dir, "part_seg_vis")
+    # Create out folder for any visualizations
+    out_folder_path = os.path.join(args.log_dir, "visualization")
     os.makedirs(out_folder_path, exist_ok=True)
     args.out_dir_part_seg = out_folder_path
 

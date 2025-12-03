@@ -86,7 +86,7 @@ def get_presence_mask(gt: torch.Tensor):
     return gt.view(gt.size(0), gt.size(1), -1).any(dim=2)
 
 
-def create_mapping_attributes_to_part_seg_group(data_dir, device):
+def create_mapping_attributes_to_part_seg_group(data_dir, device, only_cbm_attributes=True):
     """
         Creates a mapping tensor from each attribute ID in range [0, n_attributes) to its respective part segmentation group,
         as defined in utils/mappings.py and utils/index_translation.py. 
@@ -99,18 +99,19 @@ def create_mapping_attributes_to_part_seg_group(data_dir, device):
         Args:
             data_dir: The path to the dataset root
             device: The device we are on
+            only_cbm_attributes: Whether we only utilize the subset of attributes as selected by CBM.
         Returns:
             map_attr_id_to_part_seg_group: The mapping tensor of shape [A_hat], where A_hat = #num_kept_attributes, its respective value is the part seg group IDX
             attribute_names: The names of kept attributes
             unmatched_attr_id_mask: Mask that can be applied alongside the attribute dimension to remove unused parts
     """
     # This is our final tensor that maps each attribute by its id in the attention map to the respective part seg group
-    map_attr_id_to_part_seg_group, unmatched_attr_id_mask = map_attribute_ids_to_part_seg_group_id()
+    map_attr_id_to_part_seg_group, unmatched_attr_id_mask = map_attribute_ids_to_part_seg_group_id(only_cbm_attributes=only_cbm_attributes)
     map_attr_id_to_part_seg_group = map_attr_id_to_part_seg_group.to(device=device)
     unmatched_attr_id_mask = unmatched_attr_id_mask.to(device=device)
 
     # Get attribute names, remove unmatched attributes from it
-    attribute_names = get_attribute_names(data_dir, used_attributes_only=True)
+    attribute_names = get_attribute_names(data_dir, only_cbm_attributes=only_cbm_attributes)
     unmatched_mask_list = unmatched_attr_id_mask.cpu().detach().tolist()
     attribute_names = [name for name, keep in zip(attribute_names, unmatched_mask_list) if keep]
     return map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_id_mask
@@ -196,4 +197,4 @@ def compute_mIoU_statistics(
     for group_id in range(miou_per_group.shape[0]):
         print(f"Group {PART_SEG_GROUPS[group_id]} - mIoU: {miou_per_group[group_id].item():.4f}")
     
-    print(f"\Mean mIoU: {miou_global.item():.4f}")
+    print(f"Mean mIoU: {miou_global.item():.4f}")
