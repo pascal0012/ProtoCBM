@@ -7,7 +7,6 @@ from datetime import datetime
 
 import numpy as np
 import torch
-import yaml
 from torch import nn
 
 from cub.config import LR_DECAY_SIZE, MIN_LR
@@ -16,10 +15,10 @@ from losses import ProtoModLoss
 from utils.train_utils import (
     compute_accuracies,
     create_criterions,
+    gather_args,
     logger_and_summarywriter,
     model_by_mode,
     optimizer_and_scheduler_by_name,
-    normalize_scientific_floats,
     prepare_model,
     AverageMeter,
     LossMeter,
@@ -115,7 +114,10 @@ def epoch_wrapper(
             epoch,
         )
 
-    return loss_meter, class_acc_meter
+    # Choose metric here, 2 is attribute_reg_loss
+    metric = loss_meter.avg[2]
+
+    return loss_meter, class_acc_meter, metric
 
 
 def train(model: nn.Module, args: Namespace) -> float:
@@ -126,13 +128,12 @@ def train(model: nn.Module, args: Namespace) -> float:
     optimizer, scheduler = optimizer_and_scheduler_by_name(model, args)
 
     # TODO: Add checkpoints
-    # TODO: Distinguish mode
     train_loader = load_data(args, "train")
     val_loader =  load_data(args, "val")
 
     cross_entropy, protomod_criterion = create_criterions(model, args)
 
-    best_val_epoch, best_val_acc = -1, 0
+    best_val_epoch, best_val_metric = -1, 0
 
     scheduler_stop_epoch = (
         int(math.log(MIN_LR / args.lr) / math.log(LR_DECAY_SIZE)) * args.scheduler_step
@@ -141,7 +142,7 @@ def train(model: nn.Module, args: Namespace) -> float:
         start_time = time.time()
 
         # ----- Training -----
-        train_loss_meter, train_acc_meter = epoch_wrapper(
+        train_loss_meter, train_acc_meter, _ = epoch_wrapper(
             model=model,
             optimizer=optimizer,
             dataloader=train_loader,
@@ -155,7 +156,7 @@ def train(model: nn.Module, args: Namespace) -> float:
 
         # ----- Validation -----
         with torch.no_grad():
-            val_loss_meter, val_acc_meter = epoch_wrapper(
+            val_loss_meter, val_acc_meter, val_metric = epoch_wrapper(
                 model=model,
                 optimizer=optimizer,
                 dataloader=val_loader,
@@ -167,9 +168,10 @@ def train(model: nn.Module, args: Namespace) -> float:
                 protomod_criterion=protomod_criterion,
             )
 
-        if best_val_acc < val_acc_meter.avg:
-            best_val_epoch = epoch
-            best_val_acc = val_acc_meter.avg
+
+        # NOTE: We are minimizing val_metric (ACCURACY NEEDS TO BE INVERTED)
+        if val_metric < best_val_metric:
+            best_val_epoch, best_val_metric = epoch, val_metric
 
             logger.write("New model best model at epoch %d" % epoch)
             torch.save(
@@ -181,9 +183,9 @@ def train(model: nn.Module, args: Namespace) -> float:
                 [
                     datetime.now().strftime("%H:%M:%S"),
                     f"Epoch [{epoch}]",
-                    f"Train/loss: {[f'{type}: {loss.item():.4f}' for type, loss in zip(loss_labels, train_loss_meter.avg)]}",
+                    f"Train/loss: {[f'{type}: {loss:.4f}' for type, loss in zip(loss_labels, train_loss_meter.avg)]}",
                     f"Train/acc: {train_acc_meter.avg.item():.4f}",
-                    f"Val/loss: {[f'{type}: {loss.item():.4f}' for type, loss in zip(loss_labels, val_loss_meter.avg)]}",
+                    f"Val/loss: {[f'{type}: {loss:.4f}' for type, loss in zip(loss_labels, val_loss_meter.avg)]}",
                     f"Val/acc: {val_acc_meter.avg.item():.4f}",
                     f"Best val epoch: {best_val_epoch}",
                     f"Time: {time.time() - start_time:.2f} sec",
@@ -204,27 +206,11 @@ def train(model: nn.Module, args: Namespace) -> float:
             logger.write("Early stopping because acc hasn't improved for a long time")
             break
 
-    return best_val_acc
+    return best_val_metric
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        default="configs/debug.yaml",
-        help="Path to config file (YAML)",
-    )
-    cli_args = parser.parse_args()
-
-    # Load the config yaml
-    with open(cli_args.config) as f:
-        args = yaml.safe_load(f)
-    args = normalize_scientific_floats(args)
-
-    # Add run name, keep as namespace to be able to access like args.param
-    args = Namespace(**args, config_path=cli_args.config)
+    args = gather_args()
 
     model = model_by_mode(args)
 
