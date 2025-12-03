@@ -20,7 +20,7 @@ from utils.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_S
 from utils.index_translation import map_attribute_ids_from_cub_to_cbm
 from utils.eval_utils import get_eval_transform_for_model
 from utils.train_utils import accuracy, prepare_model, model_by_mode
-
+from utils.perf import Timer
 
 def create_model(args):
     if args.model_name == "protocbm":
@@ -40,9 +40,10 @@ def eval(args):
     """
 
     # Create the model and load weights
-    model = create_model(args)
-    model, device = prepare_model(model, args)
-    model.eval()
+    with Timer("Creating and preparing model"):
+        model = create_model(args)
+        model, device = prepare_model(model, args)
+        model.eval()
 
     transform, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
     # TODO: APN uses 312 attributes, ours only 112, so adjust the code to work for both

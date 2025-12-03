@@ -1,16 +1,21 @@
+# Architecture and Training config 
 mode: XCY   # XY and XC and CY
 n_attributes: 112
+no_img: False
 
+# Model specifics
 model_name: cbm
 concept_mapper: cbm
 concept_activation: none    # "relu" or "sigmoid"
 
+# Training Paths
 log_dir: outputs/ProtoCBM
 image_dir: data/CUB_200_2011/images
 data_dir: data/CUB_processed/class_attr_data_10
 checkpoint: ""
 seed: 1
 
+# Training Specifics
 epochs: 1000
 batch_size: 64
 lr: 0.01
@@ -19,6 +24,7 @@ scheduler_step: 1000
 weight_decay: 0.00004
 use_aux: true
 
+# Backbone specifics
 backbone: inception
 backbone_pretrained: true
 backbone_freeze: true
