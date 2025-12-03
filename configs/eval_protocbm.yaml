@@ -19,7 +19,7 @@ use_aux: false
 
 backbone: inception
 backbone_pretrained: true
-backbone_freeze: true
+backbone_freeze: false
 expand_dim: 0
 
 proto_n_vectors: 1

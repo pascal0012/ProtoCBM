@@ -1,8 +1,7 @@
 """
-General utils for training, evaluation and data loading
+    Contains the code regarding datasets and data loading
 """
 import pickle
-from pathlib import Path
 from typing import Literal
 
 import torch
@@ -239,7 +238,7 @@ class CUBLocalizationDataset(Dataset):
         # Apply transformations to it (center crop like image, then binarize and add dummy channel dim)
         return self.mask_transform(mask)
     
-   def _get_bounding_box_data(self, img_path, img_size):
+    def _get_bounding_box_data(self, img_path, img_size):
         # Get image id [class path is also in mapping name]
         img_name = os.sep.join(img_path.split(os.sep)[-2:])
         img_id = self.imgName_to_imgID[img_name]
@@ -253,7 +252,7 @@ class CUBLocalizationDataset(Dataset):
         # For each part get the gt bounding box, stack to one tensor
         return torch.stack(self._get_BB_per_part(bird_bb, part_infos, img_size), dim=0) # [K, 4]
     
-   def _get_BB_per_part(self, bird_bb, part_infos, img_size, scale=4):
+    def _get_BB_per_part(self, bird_bb, part_infos, img_size, scale=4):
         # Generate a bounding box mask per part, empty if part is not visible
         # BB format returned is (x1, y1, x2, y2)
         width = bird_bb[2]
@@ -363,26 +362,20 @@ def load_data(args, split: Literal["train", "val", "test"], resol=299):
     # TODO: ONLY TEMP FIX
     pkl_paths = [os.path.join(BASE_DIR, args.data_dir, f"{split}.pkl")]
     
-    resized_resol = int(resol * 256/224)
     is_training = any(['train.pkl' in f for f in pkl_paths])
     if is_training:
         transform = transforms.Compose([
-            #transforms.Resize((resized_resol, resized_resol)),
-            #transforms.RandomSizedCrop(resol),
             transforms.ColorJitter(brightness=32/255, saturation=(0.5, 1.5)),
             transforms.RandomResizedCrop(resol),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(), #implicitly divides by 255
             transforms.Normalize(mean = [0.5, 0.5, 0.5], std = [2, 2, 2])
-            #transforms.Normalize(mean = [ 0.485, 0.456, 0.406 ], std = [ 0.229, 0.224, 0.225 ]),
         ])
     else:
         transform = transforms.Compose([
-            #transforms.Resize((resized_resol, resized_resol)),
             transforms.CenterCrop(resol),
             transforms.ToTensor(), #implicitly divides by 255
             transforms.Normalize(mean = [0.5, 0.5, 0.5], std = [2, 2, 2])
-            #transforms.Normalize(mean = [ 0.485, 0.456, 0.406 ], std = [ 0.229, 0.224, 0.225 ]),
         ])
 
     dataset = CUBDataset(

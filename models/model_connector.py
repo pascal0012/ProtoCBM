@@ -22,7 +22,6 @@ class ModelConnector(nn.Module):
         aux_concept_mapper: Optional[nn.Module] = None,
     ):
         super(ModelConnector, self).__init__()
-        self.models = nn.ModuleList()
         self.backbone = backbone
         self.concept_mapper = concept_mapper
         self.aux_concept_mapper = aux_concept_mapper
