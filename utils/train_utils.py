@@ -22,6 +22,7 @@ def prepare_model(model: nn.Module, args: Namespace, load_weights: bool = False)
             model.load_state_dict(torch.load(args.backbone_dir))
         else:
             model.load_state_dict(torch.load(os.path.join(args.log_dir, "best_model_1.pth")))
+    
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
     model.compile()
@@ -78,6 +79,10 @@ def model_by_mode(args: Namespace) -> nn.Module:
         model = ModelXtoY(args)
     elif args.mode == "XC":
         model = ModelXtoC(args)
+    elif args.mode == "CY":
+        model = ModelXtoCtoY(args)  
+        raise NotImplementedError("CY mode not implemented yet")
+    
     else:
         raise ValueError(f"Unknown mode {args.mode}")
 
@@ -203,6 +208,8 @@ def compute_accuracies(
     class_acc_meter: AverageMeter,
     tb_writer: SummaryWriter,
 ) -> AverageMeter:
+    """Helper function that combines accuracy computation and logging."""
+
     # Calculate classification accuracy
     class_acc = accuracy(
         outputs, labels, topk=(1,)
