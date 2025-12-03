@@ -1,4 +1,3 @@
-import argparse
 import math
 import os
 import time
@@ -133,7 +132,8 @@ def train(model: nn.Module, args: Namespace) -> float:
 
     cross_entropy, protomod_criterion = create_criterions(model, args)
 
-    best_val_epoch, best_val_metric = -1, 0
+    best_val_epoch, best_val_metric = -1, math.inf
+    best_val_acc = 0
 
     scheduler_stop_epoch = (
         int(math.log(MIN_LR / args.lr) / math.log(LR_DECAY_SIZE)) * args.scheduler_step
@@ -168,15 +168,18 @@ def train(model: nn.Module, args: Namespace) -> float:
                 protomod_criterion=protomod_criterion,
             )
 
-
         # NOTE: We are minimizing val_metric (ACCURACY NEEDS TO BE INVERTED)
-        if val_metric < best_val_metric:
-            best_val_epoch, best_val_metric = epoch, val_metric
-
+        metric_criterion = val_metric < best_val_metric
+        acc_criterion = val_acc_meter.avg > best_val_acc
+        if metric_criterion or acc_criterion:
+            best_val_epoch = epoch
+            if metric_criterion:
+                best_val_metric = val_metric
+            if acc_criterion:
+                best_val_acc = val_acc_meter.avg
+            
             logger.write("New model best model at epoch %d" % epoch)
-            torch.save(
-                model, os.path.join(args.log_dir, "best_model_%d.pth" % args.seed)
-            )
+            torch.save(model.state_dict(), os.path.join(args.log_dir, f"best_model_{args.seed}.pth"))
 
         logger.write(
             " - ".join(

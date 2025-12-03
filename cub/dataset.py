@@ -126,7 +126,6 @@ class CUBLocalizationDataset(Dataset):
         for t in transform.transforms:
             if isinstance(t, transforms.CenterCrop):
                 self.center_crop_size = t.size
-
     
     def __len__(self):
         return len(self.data)
@@ -185,7 +184,6 @@ class CUBLocalizationDataset(Dataset):
         bounding_boxes = bounding_boxes.round().short()
 
         return bounding_boxes
-
     
     def _get_part_seg_masks(self, img_path, class_label):
 
@@ -292,7 +290,6 @@ class CUBLocalizationDataset(Dataset):
         return [KP_x1, KP_y1, KP_x2, KP_y2]#{'x1': KP_x1, 'x2': KP_x2, 'y1': KP_y1, 'y2': KP_y2}
 
     def _create_localization_accuracy_dicts(self):
-
         # Maps part ID to part name
         self.part_dict = {}
         with open(self.parts_mapping_path) as ps:

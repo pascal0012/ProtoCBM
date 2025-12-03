@@ -19,11 +19,19 @@ from models.concept_mapper import ProtoMod
 from models.models import ModelXtoC, ModelXtoCtoY, ModelXtoY
 
 
-def prepare_model(model: nn.Module, args: Namespace, load_weights: bool = False):
+def prepare_model(model: nn.Module, args: Namespace, load_weights: bool = False, training: bool = False):
     # Load in weights, if any
     if load_weights:
-        path_to_weights = args.apn_weights_dir if args.model_name == "apn" else os.path.join(args.log_dir, "best_model_1.pth")
-        model.load_state_dict(torch.load(path_to_weights))
+        path_to_weights = args.apn_weights_dir if args.model_name == "apn" else os.path.join(args.log_dir, f"best_model_{args.seed}.pth")
+        state_dict = torch.load(path_to_weights)
+
+        # Remove auxiliary logits and concept mapper, as it is not needed for inference
+        if not args.model_name == "apn" and not training:
+            print("Deleting all weights for auxiliary logits and auxiliary mappers from loaded model weights...")
+            keys_to_remove = [k for k in state_dict.keys() if "AuxLogits" in k or "aux_concept_mapper" in k]
+            for k in keys_to_remove:
+                del state_dict[k]
+        model.load_state_dict(state_dict)
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
