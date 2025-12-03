@@ -99,4 +99,5 @@ class resnet_proto_IoU(nn.Module):
 
 def load_apn_baseline(args, train=False):
     model = resnet_proto_IoU(args.backbone_dir, train=train)
+    print("Any operations on the classification output of APN is invalid (e.g. accuracy computation)!")
     return model

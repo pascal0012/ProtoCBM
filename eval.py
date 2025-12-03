@@ -42,7 +42,7 @@ def eval(args):
     # Create the model and load weights
     with Timer("Creating and preparing model"):
         model = create_model(args)
-        model, device = prepare_model(model, args)
+        model, device = prepare_model(model, args, load_weights=True)
         model.eval()
 
     transform, mask_transform, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
