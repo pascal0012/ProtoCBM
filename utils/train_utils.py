@@ -43,7 +43,8 @@ def prepare_model(model: nn.Module, args: Namespace, load_weights: bool = False,
 def logger_and_summarywriter(args: Namespace):
     os.makedirs(args.log_dir, exist_ok=True)
 
-    logger = Logger(os.path.join(args.log_dir, "log.txt"))
+    write_console = args.write_console if hasattr(args, "write_console") else True
+    logger = Logger(os.path.join(args.log_dir, "log.txt"), write_console=write_console)
     for k, v in vars(args).items():
         logger.write(f"{k}: {v}")
     logger.flush()
@@ -117,8 +118,9 @@ class Logger(object):
     Log results to a file and flush() to view instant updates
     """
 
-    def __init__(self, fpath=None):
+    def __init__(self, fpath=None, write_console=True):
         self.console = sys.stdout
+        self.write_console = write_console
         self.file = None
         if fpath is not None:
             self.file = open(fpath, "w")
@@ -133,7 +135,8 @@ class Logger(object):
         self.close()
 
     def write(self, msg):
-        self.console.write(msg + "\n")
+        if self.write_console:
+            self.console.write(msg + "\n")
         if self.file is not None:
             self.file.write(msg + "\n")
 
