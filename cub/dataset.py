@@ -157,10 +157,10 @@ class CUBLocalizationDataset(Dataset):
         part_bbs = self._get_bounding_box_data(img_source_path, (og_img_w, og_img_h))
 
         #uncomment this for resize adjustment
-        #if self.resize_size != None:
+        if self.resize_size != None:
             #adjust boxes to resizing
-            #part_bbs = self.resize_bounding_boxes(part_bbs, [og_img_w, og_img_h], self.resize_size)
-            #og_img_w, og_img_h = self.resize_size
+            part_bbs = self.resize_bounding_boxes(part_bbs, [og_img_w, og_img_h], self.resize_size if isinstance(self.resize_size, list) else [self.resize_size, self.resize_size])
+            og_img_w, og_img_h = self.resize_size
 
         if self.center_crop_size != None:
             #we have center crop adjust bounding boxes
@@ -170,8 +170,7 @@ class CUBLocalizationDataset(Dataset):
 
     def resize_bounding_boxes(self, box_tensor, og_size, new_size):
         #adjusts the BBs to resize transform
-        # og_size -> W, H
-        #new_size _> W, H
+        # og_size, new_size -> W, H
 
         scale_x = new_size[0] / og_size[0]
         scale_y = new_size[1] / og_size[1]
