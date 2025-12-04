@@ -209,6 +209,8 @@ def train(model: nn.Module, args: Namespace) -> float:
             logger.write("Early stopping because acc hasn't improved for a long time")
             break
 
+    logger.close()
+
     return val_metric
 
 
