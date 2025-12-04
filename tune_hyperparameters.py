@@ -6,6 +6,12 @@ from train_protocbm import train
 from utils.train_utils import gather_args
 
 def objective(args: Namespace, trial: optuna.Trial):
+    # Deepcopy args to avoid overwriting
+    args = Namespace(**vars(args))
+    
+    # Update log dir to avoid overwriting
+    args.log_dir = f"outputs/hyperparameter/run_{trial.number}"
+    
     # General arguments to optimize
     args.lr = trial.suggest_categorical("lr", [0.01, 0.001, 0.0001])  # type: ignore
     # args.scheduler_step = trial.suggest_categorical( # type: ignore

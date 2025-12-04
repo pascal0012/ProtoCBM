@@ -114,7 +114,7 @@ def epoch_wrapper(
         )
 
     # Choose metric here, 2 is attribute_reg_loss
-    metric = loss_meter.avg[2]
+    metric = loss_meter.avg[2] / args.loss_weight_attribute_reg
 
     return loss_meter, class_acc_meter, metric
 
@@ -209,7 +209,7 @@ def train(model: nn.Module, args: Namespace) -> float:
             logger.write("Early stopping because acc hasn't improved for a long time")
             break
 
-    return best_val_metric
+    return val_metric
 
 
 if __name__ == "__main__":
