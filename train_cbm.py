@@ -11,8 +11,6 @@ from datetime import datetime
 
 import yaml
 
-from APN.apn_loss import ProtoModLoss
-from CUB.template_model import End2EndModel
 from utils.train_utils import model_by_mode, normalize_scientific_floats
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -49,24 +47,20 @@ from utils.train_utils import (
 )
 
 # from CUB import gen_cub_synthetic
-from CUB.dataset import load_data, find_class_imbalance
-from CUB.config import (
+from cub.dataset import load_data, find_class_imbalance
+from cub.config import (
     BASE_DIR,
-    N_CLASSES,
-    N_ATTRIBUTES,
-    UPWEIGHT_RATIO,
-    MIN_LR,
-    LR_DECAY_SIZE,
 )
 
 from torch.utils.tensorboard import SummaryWriter
 from argparse import Namespace
 import torch.nn as nn
 
+
 def epoch_wrapper(
     model,
     optimizer,
-    dataloader,
+    dataloader, 
     epoch: int,
     is_training: bool,
     args: Namespace,
@@ -79,8 +73,20 @@ def epoch_wrapper(
     else:
         model.eval()
 
+
 def run_epoch_simple(
-    model, optimizer, loader, loss_meter, acc_meter, criterion, args, is_training
+    model: nn.Module,
+    optimizer,
+    dataloader: torch.utils.data.DataLoader,
+    epoch: int,
+    loss_meter: SummaryWriter,
+    acc_meter,
+    criterion,
+    tb_writer,
+    class_acc_meter,
+    args: Namespace,
+    is_training: bool,
+
 ):
     """
     A -> Y: Predicting class labels using only attributes with MLP
@@ -90,26 +96,43 @@ def run_epoch_simple(
     else:
         model.eval()
 
+    loss_meter = LossMeter(loss_labels)
+    class_acc_meter = AverageMeter()
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    for _, data in enumerate(loader):
+    
+    for _, data in enumerate(dataloader):
         inputs, labels = data
         if isinstance(inputs, list):
             # inputs = [i.long() for i in inputs]
             inputs = torch.stack(inputs).t().float()
+
         inputs = torch.flatten(inputs, start_dim=1).float()
         inputs_var = inputs.to(device)
         labels_var = labels.to(device)
 
         outputs = model(inputs_var)
         loss = criterion(outputs, labels_var)
-        acc = accuracy(outputs, labels, topk=(1,))
         loss_meter.update(loss.item(), inputs.size(0))
-        acc_meter.update(acc[0], inputs.size(0))
+        # acc = accuracy(outputs, labels, topk=(1,))
+        # acc_meter.update(acc[0], inputs.size(0))
+
+        class_acc_meter = compute_accuracies(
+            outputs, labels, epoch, class_acc_meter, tb_writer
+        )
 
         if is_training:
             optimizer.zero_grad()  # zero the parameter gradients
             loss.backward()
             optimizer.step()  # optimizer step to update parameters
+
+    for i in range(loss_meter.n_losses):
+        tb_writer.add_scalar(
+            f"{'Train' if is_training else 'Val'}/{loss_labels[i]}",
+            loss_meter.avg[i],
+            epoch,
+        )
+
     return loss_meter, acc_meter
 
 
@@ -118,18 +141,18 @@ loss_labels = [
     "concept_loss",
 ]
 
+
 def run_epoch(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     dataloader: torch.utils.data.DataLoader,
     epoch: int,
+    cross_entropy: nn.CrossEntropyLoss,
     criterion,
     attr_criterion,
     args: Namespace,
     is_training: bool,
     tb_writer,
-    cross_entropy: nn.CrossEntropyLoss,
-    protomod_criterion: ProtoModLoss,
 ):
     """
     For the rest of the networks (X -> A, cotraining, simple finetune)
@@ -147,36 +170,42 @@ def run_epoch(
     for batch in dataloader:
         inputs, labels, attr_labels = batch
 
-        # only move to device if needed        
+        # only move to device if needed
         if attr_criterion is not None:
             attr_labels = torch.stack(attr_labels, dim=1).float()
             attr_labels_var = attr_labels.to(device)
-        
-        
+
+        # todo (mel): A->Y wird noch image daten laden. Fürs testen würd ichs erst mal so lassen
+        # todo (mel): Dann sollte inputs auch nicht auf die GPU ^^
         inputs, labels = (
             inputs.to(device),
             labels.to(device),
         )
 
         losses = []
-        
+
         if is_training and args.use_aux:
             outputs, aux_outputs = model(inputs)
-            losses = []
             out_start = 0
-            
+
+            #? Was macht bottleneck hier?
             if (
                 not args.bottleneck
             ):  # loss main is for the main task label (always the first output)
-                loss_main = 1.0 * criterion(outputs[0], inputs) + 0.4 * criterion(
-                    aux_outputs[0], inputs
+                loss_class = (
+                    1.0 * cross_entropy(outputs[0], inputs) + 
+                    0.4 * cross_entropy(aux_outputs[0], inputs)
                 )
-                losses.append(loss_main)
+
+                losses.append(loss_class)
                 out_start = 1
+
             if (
                 attr_criterion is not None and args.attr_loss_weight > 0
+                #! wir wollen attr_loss_weight ja nie 0 setzen, oder? Die Abfrage kann eigentlich weg
             ):  # X -> A, cotraining, end2end
                 for i in range(len(attr_criterion)):
+                    # compute the multiple losses (weigh. BCE)
                     losses.append(
                         args.attr_loss_weight
                         * (
@@ -196,10 +225,12 @@ def run_epoch(
             outputs = model(inputs)
             losses = []
             out_start = 0
+
             if not args.bottleneck:
-                loss_main = criterion(outputs[0], inputs)
-                losses.append(loss_main)
+                loss_class = criterion(outputs[0], inputs)
+                losses.append(loss_class)
                 out_start = 1
+
             if (
                 attr_criterion is not None and args.attr_loss_weight > 0
             ):  # X -> A, cotraining, end2end
@@ -214,13 +245,14 @@ def run_epoch(
 
         if args.bottleneck:  # attribute accuracy
             sigmoid_outputs = torch.nn.Sigmoid()(torch.cat(outputs, dim=1))
-            compute_accuracies(sigmoid_outputs, labels, epoch, class_acc_meter, tb_writer)
+            compute_accuracies(
+                sigmoid_outputs, labels, epoch, class_acc_meter, tb_writer
+            )
 
         else:
-            acc = accuracy(
-                outputs[0], labels, topk=(1,)
-            )  # only care about class prediction accuracy
-            acc_meter.update(acc[0], inputs.size(0))
+            class_acc_meter = compute_accuracies(
+                outputs[0], labels, epoch, class_acc_meter, tb_writer
+            )
 
         if attr_criterion is not None:
             if args.bottleneck:
@@ -233,13 +265,14 @@ def run_epoch(
                     )
         else:  # finetune
             total_loss = sum(losses)
+
         loss_meter.update(total_loss.item(), inputs.size(0))
         if is_training:
             optimizer.zero_grad()
             total_loss.backward()
             optimizer.step()
 
-    return loss_meter, acc_meter
+    return loss_meter, class_acc_meter
 
 
 def train(model: nn.Module, args: Namespace) -> float:
@@ -259,7 +292,7 @@ def train(model: nn.Module, args: Namespace) -> float:
     imbalance = None
     if args.use_attr and not args.no_img and args.weighted_loss:
         train_data_path = os.path.join(BASE_DIR, args.data_dir, "train.pkl")
-        
+
         # When arg multiple finds the imbalance ratio for each attr
         multiple_loss = args.weighted_loss == "multiple"
         imbalance = find_class_imbalance(train_data_path, multiple_loss)
@@ -271,7 +304,8 @@ def train(model: nn.Module, args: Namespace) -> float:
     tb_writer = SummaryWriter(log_dir=os.path.join(args.log_dir, "tensorboard"))
 
     criterion = torch.nn.CrossEntropyLoss()
-    loss_labels = ["total_loss", "classification_loss", "attribute_reg_loss", "cpt_loss", "decorrelation_loss"]
+
+    
     attr_criterion = None
     if args.use_attr and not args.no_img:
         attr_criterion = []  # separate criterion (loss function) for each attribute
@@ -279,12 +313,14 @@ def train(model: nn.Module, args: Namespace) -> float:
             assert imbalance is not None
             for ratio in imbalance:
                 attr_criterion.append(
+                    # weighted BCE with weight as imbalance ratio
                     torch.nn.BCEWithLogitsLoss(
                         weight=torch.FloatTensor([ratio]).to(model.device)
                     )
                 )
         else:
-            for i in range(args.n_attributes):
+            # unweighed CE loss
+            for _ in range(args.n_attributes):
                 attr_criterion.append(torch.nn.CrossEntropyLoss())
 
     optimizer, scheduler = optimizer_and_scheduler_by_name(model, args)
@@ -296,13 +332,13 @@ def train(model: nn.Module, args: Namespace) -> float:
 
     # load data
     train_loader = load_data(args, "train")
-    val_loader =  load_data(args, "val")
+    val_loader = load_data(args, "val")
 
     for epoch in range(0, args.epochs):
         start_time = time.time()
 
         # ----- Training -----
-        if args.no_img: # C->Y
+        if args.no_img:  # C->Y
             raise NotImplementedError("TODO")
             train_loss_meter, train_acc_meter = run_epoch_simple(
                 model,
@@ -323,7 +359,6 @@ def train(model: nn.Module, args: Namespace) -> float:
                 is_training=True,
             )
 
-
         # ----- Validation -----
         with torch.no_grad():
             if args.no_img:
@@ -336,7 +371,7 @@ def train(model: nn.Module, args: Namespace) -> float:
                     args,
                     is_training=False,
                 )
-        
+
             else:
                 val_loss_meter, val_acc_meter = run_epoch(
                     model,
@@ -347,7 +382,6 @@ def train(model: nn.Module, args: Namespace) -> float:
                     args,
                     is_training=False,
                 )
-        
 
         if best_val_acc < val_acc_meter.avg:
             best_val_epoch = epoch
@@ -362,45 +396,24 @@ def train(model: nn.Module, args: Namespace) -> float:
         val_loss_avg = val_loss_meter.avg
 
         time_duration = time.time() - start_time
-        if model.__class__.__name__ == "ProtoEnd2End":
-
-            logger.write(
-                " - ".join(
-                    [
-                        datetime.now().strftime("%H:%M:%S"),
-                        f"Epoch [{epoch}]",
-                        f"Train/loss: {train_loss_avg:.4f}",
-                        f"Train/acc: {train_acc_meter.avg.item():.4f}",
-                        f"Val/loss: {val_loss_avg:.4f}",
-                        f"Val/acc: {val_acc_meter.avg.item():.4f}"
-                        f"Best val epoch: {best_val_epoch}",
-                        f"Time: {time_duration:.2f} sec",
-                    ]
-                )
-            )
-        else:
-            logger.write(
-                " - ".join([
+        logger.write(
+            " - ".join(
+                [
                     datetime.now().strftime("%H:%M:%S"),
                     f"Epoch [{epoch}]",
-                    *[
-                        f"Train/{loss_labels[i]}: {train_loss_meter.avg[i]:.4f}"
-                        for i in range(train_loss_meter.n_losses)
-                    ],
+                    f"Train/loss: {train_loss_avg:.4f}",
                     f"Train/acc: {train_acc_meter.avg.item():.4f}",
-                    *[
-                        f"Val/{loss_labels[i]}: {val_loss_meter.avg[i]:.4f}"
-                        for i in range(val_loss_meter.n_losses)
-                    ],
-                    f"Val/acc: {val_acc_meter.avg.item():.4f}",
+                    f"Val/loss: {val_loss_avg:.4f}",
+                    f"Val/acc: {val_acc_meter.avg.item():.4f}"
                     f"Best val epoch: {best_val_epoch}",
                     f"Time: {time_duration:.2f} sec",
-                    "\n"
-                ])
+                ]
             )
+        )
+ 
         logger.flush()
 
-        if epoch <= stop_epoch:
+        if epoch <= scheduler_stop_epoch:
             scheduler.step(epoch)  # scheduler step to update lr at the end of epoch
         # inspect lr
         if epoch % 10 == 0:
@@ -440,5 +453,4 @@ if __name__ == "__main__":
     args = argparse.Namespace(**args, config_path=cli_args.config)
 
     model = model_by_mode(args)
-
     train(model, args)
