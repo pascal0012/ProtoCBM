@@ -5,7 +5,6 @@ Train InceptionV3 Network using the CUB-200-2011 dataset
 import os
 import sys
 import argparse
-from typing import Dict
 import time
 from datetime import datetime
 
@@ -19,28 +18,17 @@ import math
 import torch
 import numpy as np
 
-import argparse
-import math
 import os
-import time
 from argparse import Namespace
-from datetime import datetime
 
-import numpy as np
-import torch
-import yaml
 from torch import nn
 
 from cub.config import LR_DECAY_SIZE, MIN_LR
-from cub.dataset import load_data
 from losses import ProtoModLoss
 from utils.train_utils import (
     compute_accuracies,
-    create_criterions,
     logger_and_summarywriter,
-    model_by_mode,
     optimizer_and_scheduler_by_name,
-    normalize_scientific_floats,
     prepare_model,
     AverageMeter,
     LossMeter,
@@ -53,8 +41,6 @@ from cub.config import (
 )
 
 from torch.utils.tensorboard import SummaryWriter
-from argparse import Namespace
-import torch.nn as nn
 
 
 def epoch_wrapper(
@@ -434,6 +420,7 @@ def train(model: nn.Module, args: Namespace) -> float:
 
 
 if __name__ == "__main__":
+    print("Training CUB model")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
@@ -451,6 +438,9 @@ if __name__ == "__main__":
 
     # Add run name, keep as namespace to be able to access like args.param
     args = argparse.Namespace(**args, config_path=cli_args.config)
-
+    
+    print('creating model...')
     model = model_by_mode(args)
+
+    print('starting training...')
     train(model, args)
