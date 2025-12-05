@@ -8,9 +8,9 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils.mappings import MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
-from utils.index_translation import map_attribute_ids_from_cub_to_cbm
-from utils.protomod_utils import add_glasso, get_middle_graph
+from utils_protocbm.mappings import MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
+from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
+from utils_protocbm.protomod_utils import add_glasso, get_middle_graph
 from models.concept_mapper import ProtoMod
 
 
@@ -55,12 +55,12 @@ class ProtoModLoss(nn.Module):
 
         # L_cpt from the APN paper: Enforces compactness of the attention maps
         peak_id = torch.argmax(
-            attention_maps.view(batch_size * num_attributes, -1), dim=1
+            attention_maps.reshape(batch_size * num_attributes, -1), dim=1
         )
         peak_mask = self.middle_graph[peak_id, :, :].view(
             batch_size, num_attributes, map_dim, map_dim
         )
-        cpt_loss = self.reg_weights["cpt"] * torch.sum(
+        cpt_loss = self.reg_weights["cpt"] * torch.mean(
             F.sigmoid(attention_maps) * peak_mask
         )
         loss += cpt_loss

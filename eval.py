@@ -3,10 +3,10 @@ Evaluate trained models on the official CUB test set
 """
 
 import os
+import sys
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import yaml
 
 from cub.dataset import CUBLocalizationDataset
 from cub.config import BASE_DIR
@@ -15,11 +15,11 @@ from localization.visualise import visualise_part_segmentations, visualise_local
 from localization.localization_accuracy import calculate_average_partwise_localization_accuracy, compute_localization_accuracy, create_part_attribute_mapping_tensor
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
-from utils.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS
-from utils.index_translation import map_attribute_ids_from_cub_to_cbm
-from utils.eval_utils import get_eval_transform_for_model
-from utils.train_utils import accuracy, prepare_model, model_by_mode, gather_args
-from utils.perf import Timer
+from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS
+from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
+from utils_protocbm.eval_utils import get_eval_transform_for_model
+from utils_protocbm.train_utils import accuracy, prepare_model, model_by_mode, gather_args
+from utils_protocbm.perf import Timer
 
 
 def create_model(args):
@@ -155,10 +155,19 @@ if __name__ == '__main__':
 
     args = gather_args()
 
-    # Create out folder for any visualizations
-    out_folder_path = os.path.join(args.log_dir, "visualization")
+    # Create out folder for any visualizations / eval outputs
+    out_folder_path = os.path.join(args.log_dir, f"visualization_{args.saliency_method}")
     os.makedirs(out_folder_path, exist_ok=True)
     args.out_dir_part_seg = out_folder_path
+
+    # Print everything into separate file
+    path_to_output_txt = os.path.join(args.out_dir_part_seg, "eval.txt")
+    print(f"Writing outputs into {path_to_output_txt}.")
+    sys.stdout = open(path_to_output_txt, 'a')
+
+    # Print all args
+    for k, v in vars(args).items():
+        print(f"{k}: {v}")
 
     # Run main evaluation
     eval(args)

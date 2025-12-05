@@ -7,7 +7,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils.mappings import NUM_ATTRIBUTES
+from utils_protocbm.mappings import NUM_ATTRIBUTES
 
 
 class ProtoMod(nn.Module):

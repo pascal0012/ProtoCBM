@@ -32,7 +32,6 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
         return preds, similarity_scores, new_maps
 
     elif args.saliency_method == "cam":
-        print("Uing CAM saliency method...")
         if args.model_name == "protocbm":
             from saliency.wrapper import WrapperProtoCBM
 

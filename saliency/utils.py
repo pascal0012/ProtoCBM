@@ -1,9 +1,8 @@
-from utils.mappings import (
+from utils_protocbm.mappings import (
     MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS,
     CBM_SELECTED_CUB_ATTRIBUTE_IDS
 )
 
-from cub.config import BASE_DIR
 from torch.utils.data import DataLoader, Dataset
 import torch 
 import os

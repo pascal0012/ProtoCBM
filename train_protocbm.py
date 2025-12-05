@@ -11,7 +11,7 @@ from torch import nn
 from cub.config import LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
 from losses import ProtoModLoss
-from utils.train_utils import (
+from utils_protocbm.train_utils import (
     compute_accuracies,
     create_criterions,
     gather_args,
@@ -104,6 +104,7 @@ def epoch_wrapper(
         if is_training:
             optimizer.zero_grad()
             total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
     for i in range(loss_meter.n_losses):
