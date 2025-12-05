@@ -1,10 +1,168 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from PIL import Image, ImageDraw, ImageFont
 
 import numpy as np
 import os
 import random
 
+import torch
+import torch.nn.functional as F
+
+def create_attribute_mosaic(
+    images,             # torch tensor, shape (I, C, H, W)
+    heatmaps,           # torch tensor, shape (I, A, H, W)
+    attribute_names,    # list of strings, len A
+    scores,             # numpy or torch, shape (I, A)
+    alpha=0.5,
+    resize_to=None,
+    font_path=None,
+    font_size=20,
+    header_height=40,
+    score_height=30,
+):
+
+    # -------------------------
+    # Validate inputs
+    # -------------------------
+    I, C, H, W = images.shape
+    _, A, H_hm, W_hm = heatmaps.shape
+
+    # If images are not in [0,1], normalize?
+    # We'll assume they are already suitable for visualization.
+
+    # -------------------------
+    # Load font
+    # -------------------------
+    try:
+        font = ImageFont.truetype(font_path, font_size) if font_path else ImageFont.load_default()
+    except:
+        font = ImageFont.load_default()
+
+    # -------------------------
+    # Resize heatmaps to match image resolution
+    # -------------------------
+    if (H_hm != H) or (W_hm != W):
+        heatmaps = F.interpolate(
+            heatmaps,
+            size=(H, W),
+            mode="bilinear",
+            align_corners=False
+        )
+
+    # -------------------------
+    # Convert images to PIL
+    # -------------------------
+    proc_images = [tensor_to_pil(images[i]) for i in range(I)]
+
+    # -------------------------
+    # Resize images & heatmaps if requested
+    # -------------------------
+    if resize_to is not None:
+        new_w, new_h = resize_to
+        proc_images = [img.resize((new_w, new_h), Image.LANCZOS) for img in proc_images]
+
+        heatmaps = F.interpolate(
+            heatmaps,
+            size=(new_h, new_w),
+            mode="bilinear",
+            align_corners=False
+        )
+        H, W = new_h, new_w
+
+    # -------------------------
+    # Prepare output mosaic canvas
+    # -------------------------
+    cell_w, cell_h = W, H
+    mosaic_w = A * cell_w
+    mosaic_h = I * (cell_h + score_height) + header_height
+
+    mosaic = Image.new("RGB", (mosaic_w, mosaic_h), "white")
+    draw = ImageDraw.Draw(mosaic)
+
+    # -------------------------
+    # Draw attribute column headers
+    # -------------------------
+    for a, name in enumerate(attribute_names):
+        x_center = a * cell_w + cell_w // 2
+        y_center = header_height // 2
+
+        bbox = draw.textbbox((0, 0), name, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+
+        draw.text(
+            (x_center - text_w // 2, y_center - text_h // 2),
+            name,
+            fill="black",
+            font=font
+        )
+
+    # -------------------------
+    # Draw each cell (image + heatmap + score)
+    # -------------------------
+    heatmaps_np = heatmaps.detach().cpu().numpy()
+
+    if isinstance(scores, torch.Tensor):
+        scores = scores.cpu().numpy()
+
+    for i in range(I):
+        for a in range(A):
+            base_img = proc_images[i]
+
+            heatmap = heatmaps_np[i, a]  # (H, W)
+            heatmap_color = plt_colormap(heatmap)  # (H, W, 3)
+            heatmap_img = Image.fromarray((heatmap_color * 255).astype(np.uint8)).convert("RGBA")
+
+            base_rgba = base_img.convert("RGBA")
+            blended = Image.blend(base_rgba, heatmap_img, alpha)
+
+            # Position
+            top = header_height + i * (cell_h + score_height)
+            left = a * cell_w
+            mosaic.paste(blended, (left, top))
+
+            # Score text
+            score_str = f"{scores[i, a]:.3f}"
+
+            bbox = draw.textbbox((0,0), score_str, font=font)
+            text_w = bbox[2] - bbox[0]
+
+            y_text = top + cell_h + 5
+            x_text = left + cell_w // 2 - text_w // 2
+
+            draw.text((x_text, y_text), score_str, fill="black", font=font)
+
+    mosaic.save("outputs/APN/mosaic.png")
+
+
+
+def plt_colormap(x):
+    """Simple jet-like colormap for heatmaps."""
+    x = np.clip(x, 0, 1)
+    r = np.clip(1.5 - np.abs(4 * x - 3), 0, 1)
+    g = np.clip(1.5 - np.abs(4 * x - 2), 0, 1)
+    b = np.clip(1.5 - np.abs(4 * x - 1), 0, 1)
+    return np.stack([r, g, b], axis=-1).astype(np.float32)
+
+
+def tensor_to_pil(img_tensor):
+    """
+    Convert torch tensor (C, H, W) in [0,1] (or [0,255]) to PIL.Image.
+    Supports 1-channel or 3-channel.
+    """
+    img = img_tensor.detach().cpu()
+
+    if img.max() <= 1.0:
+        img = img * 255.0
+
+    img = img.byte()
+
+    if img.shape[0] == 1:
+        img = img.repeat(3, 1, 1)
+
+    img_np = img.permute(1, 2, 0).numpy()
+    return Image.fromarray(img_np)
 
 
 def visualise_localization_acc_boxes(
@@ -15,7 +173,7 @@ def visualise_localization_acc_boxes(
     batch_nr,
     batch_ious,
     part_names,
-    batch_idx=None,
+    batch_idx=0,
     t_mean=0.5,
     t_std=2,
     save_path=""
