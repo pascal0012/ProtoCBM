@@ -269,7 +269,7 @@ def compute_accuracies(
 
     # Calculate attribute accuracy
     attr_acc = binary_accuracy(similarity_scores, attribute_labels)
-    attr_acc_meter.update(attr_acc[0], outputs.size(0))
+    attr_acc_meter.update(attr_acc, outputs.size(0))
 
     tb_writer.add_scalar("Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch)
 
