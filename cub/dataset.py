@@ -200,7 +200,7 @@ class CUBLocalizationDataset(Dataset):
 
         visible_mask = (
             (orig_center_x >= left) & (orig_center_x <= left + crop_size[0]) &
-            (orig_center_y >= top)  & (orig_center_y <= right + crop_size[1])
+            (orig_center_y >= top)  & (orig_center_y <= top + crop_size[1])
         )
 
         # Shift all boxes in place
