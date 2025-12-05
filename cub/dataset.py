@@ -160,7 +160,7 @@ class CUBLocalizationDataset(Dataset):
         if self.resize_size != None:
             #adjust boxes to resizing
             part_bbs = self.resize_bounding_boxes(part_bbs, [og_img_w, og_img_h], self.resize_size if isinstance(self.resize_size, list) else [self.resize_size, self.resize_size])
-            og_img_w, og_img_h = if isinstance(self.resize_size, list) else [self.resize_size, self.resize_size]
+            og_img_w, og_img_h = self.resize_size if isinstance(self.resize_size, list) else [self.resize_size, self.resize_size]
 
         if self.center_crop_size != None:
             #we have center crop adjust bounding boxes
