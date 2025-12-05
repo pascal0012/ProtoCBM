@@ -195,8 +195,8 @@ class CUBLocalizationDataset(Dataset):
 
         bounding_boxes = bounding_boxes.float()
 
-        orig_centers_x = (bounding_boxes[:, 0] + bounding_boxes[:, 2]) / 2
-        orig_centers_y = (bounding_boxes[:, 1] + bounding_boxes[:, 3]) / 2
+        orig_center_x = (bounding_boxes[:, 0] + bounding_boxes[:, 2]) / 2
+        orig_center_y = (bounding_boxes[:, 1] + bounding_boxes[:, 3]) / 2
 
         visible_mask = (
             (orig_center_x >= left) & (orig_center_x <= left + crop_size[0]) &
