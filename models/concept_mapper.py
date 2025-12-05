@@ -1,10 +1,12 @@
-from models.components import FC
-import torch.nn.functional as F
-from torch import nn
-import torch
-
 import os
 import sys
+
+import torch
+import torch.nn.functional as F
+from torch import nn
+
+from models.components import FC
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from utils.mappings import NUM_ATTRIBUTES
@@ -48,21 +50,22 @@ class CBMMapper(nn.Module):
                 expand_dim: The dimensionality of the hidden layer MLP. If = 0, no extra hidden layer is inserted, but a direct mapping is cretated.
         """
         super(CBMMapper, self).__init__()
+
+        self.all_fc = nn.ModuleList()
         for _ in range(NUM_ATTRIBUTES):
             self.all_fc.append(FC(channel_dim, 1, expand_dim))
 
 
     def forward(self, x):
-        """
-            Given a feature map of shape [B, C, H , W], creates concepts from it.
-        """
+        """Given a feature map of shape [B, C, H , W], creates concepts from it."""
         # Adaptive average pooling
-        x = F.adaptive_avg_pool2d(x, (1, 1))
+        
         # N x C x 1 x 1
+        x = F.adaptive_avg_pool2d(x, (1, 1)) 
         x = F.dropout(x, training=self.training)
-        # N x C x 1 x 1
-        x = x.view(x.size(0), -1)
+
         # N x C
+        x = x.view(x.size(0), -1)
         out = []
         for fc in self.all_fc:
             out.append(fc(x))
