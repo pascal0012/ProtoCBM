@@ -9,7 +9,7 @@ from datetime import datetime
 
 import yaml
 
-from utils.train_utils import model_by_mode, normalize_scientific_floats
+from utils.train_utils import accuracy, binary_accuracy, model_by_mode, normalize_scientific_floats
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -57,6 +57,8 @@ def run_epoch_simple(
     """
     A -> Y: Predicting class labels using only attributes with MLP
     """
+
+    raise NotImplementedError("TODO: implement run_epoch_simple for A->Y models")
     if is_training:
         model.train()
     else:
@@ -64,6 +66,7 @@ def run_epoch_simple(
 
     loss_meter = LossMeter(loss_labels)
     class_acc_meter = AverageMeter()
+    attr_acc_meter = AverageMeter()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -80,8 +83,8 @@ def run_epoch_simple(
         loss = criterion(outputs, labels_var)
         loss_meter.update(loss.item(), inputs.size(0))
 
-        class_acc_meter = compute_accuracies(
-            outputs, labels, epoch, class_acc_meter, tb_writer
+        class_acc_meter, attr_acc_meter = compute_accuracies(
+            outputs, labels, epoch, class_acc_meter, attr_acc_meter, tb_writer
         )
 
         if is_training:
@@ -113,8 +116,10 @@ def run_epoch(
     """
     For the rest of the networks (X -> A, cotraining, simple finetune)
     """
+    print("Running epoch:", epoch,  "train" if is_training else "val")
     loss_meter = LossMeter(loss_labels)
     class_acc_meter = AverageMeter()
+    attr_acc_meter = AverageMeter()
 
     if is_training:
         model.train()
@@ -193,15 +198,29 @@ def run_epoch(
 
         if args.bottleneck:
             # computes the binary accuracy over all attributes
-            sigmoid_outputs = torch.nn.Sigmoid()(torch.cat(outputs, dim=1))
-            class_acc_meter, _ = compute_accuracies(
-                sigmoid_outputs, labels, epoch, class_acc_meter, tb_writer
-            )
+            attributes = torch.cat(outputs[1:], dim=1).to(outputs[0].device)
+
+            sigmoid_outputs = torch.nn.Sigmoid()(attributes)
+            attr_acc = binary_accuracy(sigmoid_outputs, attr_labels)
+            attr_acc_meter.update(attr_acc, attributes.size(0))
+            tb_writer.add_scalar("Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch)
+
         else:
             # only use the first output
-            class_acc_meter = compute_accuracies(
-                outputs[0], labels, epoch, class_acc_meter, tb_writer
-            )
+            # outputs[0] = (B, n_classes)
+            softmax_outputs = torch.nn.Softmax(dim=1)(outputs[0])
+            class_acc = accuracy(softmax_outputs, labels, topk=(1,))   
+            class_acc_meter.update(class_acc[0], softmax_outputs.size(0))
+            tb_writer.add_scalar("Class Accuracy/train", class_acc_meter.avg.item(), epoch)
+
+            
+            if not args.no_img:
+                attributes = torch.cat(outputs[1:], dim=1)
+
+                sigmoid_outputs = torch.nn.Sigmoid()(attributes)
+                attr_acc = binary_accuracy(sigmoid_outputs, attr_labels)
+                attr_acc_meter.update(attr_acc, attributes.size(0))
+                tb_writer.add_scalar("Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch)
 
         if attr_criterion is not None:
             if args.bottleneck:
