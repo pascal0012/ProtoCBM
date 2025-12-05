@@ -175,7 +175,7 @@ class CUBLocalizationDataset(Dataset):
         scale_x = new_size[0] / og_size[0]
         scale_y = new_size[1] / og_size[1]
 
-        boxes = box_tensor.clone()
+        boxes = box_tensor.clone().float()
 
         # apply scaling only to non-zero boxes
         boxes[:, 0] *= scale_x  # x1
