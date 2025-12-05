@@ -187,7 +187,6 @@ class CUBLocalizationDataset(Dataset):
 
 
     def _adjust_to_center_crop(self, bounding_boxes, og_w, og_h, crop_size):
-        #print(crop_size, type(crop_size))
         #adjusts bounding box coords to acknowledge center crop transformation
         #bounding boxes is the [K, 4] tensor that comes from the bounding box creation in get_item
         
@@ -195,6 +194,14 @@ class CUBLocalizationDataset(Dataset):
         top  = (og_h - crop_size[1]) / 2
 
         bounding_boxes = bounding_boxes.float()
+
+        orig_centers_x = (bounding_boxes[:, 0] + bounding_boxes[:, 2]) / 2
+        orig_centers_y = (bounding_boxes[:, 1] + bounding_boxes[:, 3]) / 2
+
+        visible_mask = (
+            (orig_center_x >= left) & (orig_center_x <= left + crop_size[0]) &
+            (orig_center_y >= top)  & (orig_center_y <= right + crop_size[1])
+        )
 
         # Shift all boxes in place
         bounding_boxes[:, 0].sub_(left)  # xmin
@@ -207,6 +214,8 @@ class CUBLocalizationDataset(Dataset):
         bounding_boxes[:, 1].clamp_(0, crop_size[1])
         bounding_boxes[:, 2].clamp_(0, crop_size[0])
         bounding_boxes[:, 3].clamp_(0, crop_size[1])
+
+        bounding_boxes[~visible_mask] = 0
 
         bounding_boxes = bounding_boxes.round().short()
 
