@@ -1,16 +1,14 @@
-from argparse import Namespace
 import argparse
+import os
+import sys
+from argparse import Namespace
+from typing import Tuple
 
-import yaml
+import numpy as np
 import torch
+import yaml
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
-import numpy as np
-import os
-import sys
-
-import os
-import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
@@ -19,20 +17,35 @@ from models.concept_mapper import ProtoMod
 from models.models import ModelXtoC, ModelXtoCtoY, ModelXtoY
 
 
-def prepare_model(model: nn.Module, args: Namespace, load_weights: bool = False, training: bool = False):
+def prepare_model(
+    model: nn.Module,
+    args: Namespace,
+    load_weights: bool = False,
+    training: bool = False,
+):
     # Load in weights, if any
     if load_weights:
-        path_to_weights = args.apn_weights_dir if args.model_name == "apn" else os.path.join(args.log_dir, f"best_model_{args.seed}.pth")
+        path_to_weights = (
+            args.apn_weights_dir
+            if args.model_name == "apn"
+            else os.path.join(args.log_dir, f"best_model_{args.seed}.pth")
+        )
         state_dict = torch.load(path_to_weights)
 
         # Remove auxiliary logits and concept mapper, as it is not needed for inference
         if not args.model_name == "apn" and not training:
-            print("Deleting all weights for auxiliary logits and auxiliary mappers from loaded model weights...")
-            keys_to_remove = [k for k in state_dict.keys() if "AuxLogits" in k or "aux_concept_mapper" in k]
+            print(
+                "Deleting all weights for auxiliary logits and auxiliary mappers from loaded model weights..."
+            )
+            keys_to_remove = [
+                k
+                for k in state_dict.keys()
+                if "AuxLogits" in k or "aux_concept_mapper" in k
+            ]
             for k in keys_to_remove:
                 del state_dict[k]
         model.load_state_dict(state_dict)
-    
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
     model.compile()
@@ -119,8 +132,9 @@ class Logger(object):
     """
 
     def __init__(self, fpath=None, write_console=True):
-        self.console = sys.stdout
         self.write_console = write_console
+        if self.write_console:
+            self.console = sys.stdout
         self.file = None
         if fpath is not None:
             self.file = open(fpath, "w")
@@ -141,13 +155,15 @@ class Logger(object):
             self.file.write(msg + "\n")
 
     def flush(self):
-        self.console.flush()
+        if self.write_console:
+            self.console.flush()
         if self.file is not None:
             self.file.flush()
             os.fsync(self.file.fileno())
 
     def close(self):
-        self.console.close()
+        if self.write_console:
+            self.console.close()
         if self.file is not None:
             self.file.close()
 
@@ -219,13 +235,28 @@ def accuracy(output, target, topk=(1,)):
     return res
 
 
+def binary_accuracy(similarity_scores, target):
+    """
+    Computes the accuracy for multiple binary predictions
+    output and target are Torch tensors
+    """
+    pred = similarity_scores >= 0.5
+
+    acc = (pred.int()).eq(target.int()).sum()
+    acc = acc / np.prod(np.array(target.size()))
+    return acc
+
+
 def compute_accuracies(
     outputs: torch.Tensor,
+    similarity_scores: torch.Tensor,
+    attribute_labels: torch.Tensor,
     labels,
     epoch: int,
     class_acc_meter: AverageMeter,
+    attr_acc_meter: AverageMeter,
     tb_writer: SummaryWriter,
-) -> AverageMeter:
+) -> Tuple[AverageMeter, AverageMeter]:
     """Helper function that combines accuracy computation and logging."""
 
     # Calculate classification accuracy
@@ -236,7 +267,13 @@ def compute_accuracies(
 
     tb_writer.add_scalar("Class Accuracy/train", class_acc_meter.avg.item(), epoch)
 
-    return class_acc_meter
+    # Calculate attribute accuracy
+    attr_acc = binary_accuracy(similarity_scores, attribute_labels)
+    attr_acc_meter.update(attr_acc[0], outputs.size(0))
+
+    tb_writer.add_scalar("Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch)
+
+    return class_acc_meter, attr_acc_meter
 
 
 def normalize_scientific_floats(cfg):

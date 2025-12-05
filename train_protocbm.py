@@ -46,6 +46,7 @@ def epoch_wrapper(
 ):
     loss_meter = LossMeter(loss_labels)
     class_acc_meter = AverageMeter()
+    attr_acc_meter = AverageMeter()
 
     if is_training:
         model.train()
@@ -90,8 +91,15 @@ def epoch_wrapper(
         losses.append(decorrelation_loss)
 
         # Calculate attribute accuracy
-        class_acc_meter = compute_accuracies(
-            outputs, labels, epoch, class_acc_meter, tb_writer
+        class_acc_meter, attr_acc_meter = compute_accuracies(
+            outputs,
+            similarity_scores,
+            attr_labels,
+            labels,
+            epoch,
+            class_acc_meter,
+            attr_acc_meter,
+            tb_writer,
         )
 
         total_loss = torch.stack(losses).sum()
@@ -113,10 +121,7 @@ def epoch_wrapper(
             epoch,
         )
 
-    # Choose metric here, 2 is attribute_reg_loss
-    metric = loss_meter.avg[2] / args.loss_weight_attribute_reg
-
-    return loss_meter, class_acc_meter, metric
+    return loss_meter, class_acc_meter, attr_acc_meter, 1 - attr_acc_meter.avg
 
 
 def train(model: nn.Module, args: Namespace) -> float:
@@ -128,7 +133,7 @@ def train(model: nn.Module, args: Namespace) -> float:
 
     # TODO: Add checkpoints
     train_loader = load_data(args, "train")
-    val_loader =  load_data(args, "val")
+    val_loader = load_data(args, "val")
 
     cross_entropy, protomod_criterion = create_criterions(model, args)
 
@@ -142,7 +147,7 @@ def train(model: nn.Module, args: Namespace) -> float:
         start_time = time.time()
 
         # ----- Training -----
-        train_loss_meter, train_acc_meter, _ = epoch_wrapper(
+        train_loss_meter, train_class_acc_meter, train_attr_acc_meter, _ = epoch_wrapper(
             model=model,
             optimizer=optimizer,
             dataloader=train_loader,
@@ -156,7 +161,7 @@ def train(model: nn.Module, args: Namespace) -> float:
 
         # ----- Validation -----
         with torch.no_grad():
-            val_loss_meter, val_acc_meter, val_metric = epoch_wrapper(
+            val_loss_meter, val_class_acc_meter, val_attr_acc_meter, val_metric = epoch_wrapper(
                 model=model,
                 optimizer=optimizer,
                 dataloader=val_loader,
@@ -170,16 +175,19 @@ def train(model: nn.Module, args: Namespace) -> float:
 
         # NOTE: We are minimizing val_metric (ACCURACY NEEDS TO BE INVERTED)
         metric_criterion = val_metric < best_val_metric
-        acc_criterion = val_acc_meter.avg > best_val_acc
+        acc_criterion = val_class_acc_meter.avg > best_val_acc
         if metric_criterion or acc_criterion:
             best_val_epoch = epoch
             if metric_criterion:
                 best_val_metric = val_metric
             if acc_criterion:
-                best_val_acc = val_acc_meter.avg
-            
+                best_val_acc = val_class_acc_meter.avg
+
             logger.write("New model best model at epoch %d" % epoch)
-            torch.save(model.state_dict(), os.path.join(args.log_dir, f"best_model_{args.seed}.pth"))
+            torch.save(
+                model.state_dict(),
+                os.path.join(args.log_dir, f"best_model_{args.seed}.pth"),
+            )
 
         logger.write(
             " - ".join(
@@ -187,9 +195,11 @@ def train(model: nn.Module, args: Namespace) -> float:
                     datetime.now().strftime("%H:%M:%S"),
                     f"Epoch [{epoch}]",
                     f"Train/loss: {[f'{type}: {loss:.4f}' for type, loss in zip(loss_labels, train_loss_meter.avg)]}",
-                    f"Train/acc: {train_acc_meter.avg.item():.4f}",
+                    f"Train/Class acc: {train_class_acc_meter.avg.item():.4f}",
+                    f"Train/Attr acc: {train_attr_acc_meter.avg.item():.4f}",
                     f"Val/loss: {[f'{type}: {loss:.4f}' for type, loss in zip(loss_labels, val_loss_meter.avg)]}",
-                    f"Val/acc: {val_acc_meter.avg.item():.4f}",
+                    f"Val/Class acc: {val_class_acc_meter.avg.item():.4f}",
+                    f"Val/Attr acc: {val_attr_acc_meter.avg.item():.4f}",
                     f"Best val epoch: {best_val_epoch}",
                     f"Time: {time.time() - start_time:.2f} sec",
                     f"LR: {scheduler.get_lr()[0]:.6f}",
