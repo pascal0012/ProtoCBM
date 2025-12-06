@@ -11,7 +11,7 @@ concept_mapper: cbm
 concept_activation: none    # "relu" or "sigmoid"
 
 # Training Paths
-log_dir: outputs/ProtoCBM
+log_dir: outputs/CBM
 image_dir: data/CUB_200_2011/images
 data_dir: data/CUB_processed/class_attr_data_10
 checkpoint: ""
@@ -34,6 +34,6 @@ expand_dim: 0
 
 # CBM specifics
 normalize_loss: true
-loss_attr_weight: 1.0
 weighted_loss: multiple
+loss_attr_weight: 1.0
 attr_loss_weight: 1.0
