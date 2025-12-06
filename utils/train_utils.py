@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 from argparse import Namespace
-from typing import Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -125,6 +125,26 @@ def create_criterions(model: nn.Module, args: Namespace):
 
     return cross_entropy, protomod_criterion
 
+def build_attr_criterion(
+    args: Namespace,
+    imbalance: Optional[List[float]],
+    device: torch.device,
+) -> Optional[List[nn.Module]]:
+    """Build attribute criterion based on configuration."""
+    if not args.use_attr or args.no_img:
+        return None
+
+    attr_criterion = []
+    if args.weighted_loss and imbalance is not None:
+        for ratio in imbalance:
+            attr_criterion.append(
+                nn.BCEWithLogitsLoss(weight=torch.FloatTensor([ratio]).to(device))
+            )
+    else:
+        attr_criterion = [nn.CrossEntropyLoss() for _ in range(args.n_attributes)]
+    
+    return attr_criterion
+
 
 class Logger(object):
     """
@@ -246,6 +266,11 @@ def binary_accuracy(similarity_scores, target):
     acc = acc / np.prod(np.array(target.size()))
     return acc
 
+def compute_attr_accuracy(outputs, attr_labels_var, device):
+    """Compute binary accuracy over all attributes."""
+    attributes = torch.cat(outputs[1:], dim=1).to(device)
+    sigmoid_outputs = torch.nn.Sigmoid()(attributes)
+    return binary_accuracy(sigmoid_outputs, attr_labels_var), attributes.size(0)
 
 def compute_accuracies(
     outputs: torch.Tensor,
@@ -293,6 +318,14 @@ def normalize_scientific_floats(cfg):
     else:
         return cfg
 
+def process_cbm_config(args: Namespace) -> Namespace:
+    # if mode = 'XC', create a argument bottleneck
+    if args.mode == "XC":
+        args.use_attr = True
+        args.no_img = False
+        args.bottleneck = True
+    
+    return args
 
 def gather_args():
     parser = argparse.ArgumentParser()
