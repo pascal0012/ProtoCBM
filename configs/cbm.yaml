@@ -2,6 +2,8 @@
 mode: XCY   # XY and XC and CY
 n_attributes: 112
 no_img: False
+use_attr: True
+bottleneck: False
 
 # Model specifics
 model_name: cbm
