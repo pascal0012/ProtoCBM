@@ -7,9 +7,15 @@ import sys
 import time
 from datetime import datetime
 
+import numpy as np
 import yaml
 
-from utils.train_utils import accuracy, binary_accuracy, model_by_mode, normalize_scientific_floats
+from utils.train_utils import (
+    accuracy,
+    binary_accuracy,
+    model_by_mode,
+    normalize_scientific_floats,
+)
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -117,6 +123,15 @@ def run_epoch(
     For the rest of the networks (X -> A, cotraining, simple finetune)
     """
     print("Running epoch:", epoch,  "train" if is_training else "val")
+    loss_labels = []
+    if args.bottleneck:
+        loss_labels = ["attr_loss"]
+    else:
+        if attr_criterion is not None:
+            loss_labels = ["class_loss", "attr_loss"]
+        else:
+            loss_labels = ["class_loss"]
+
     loss_meter = LossMeter(loss_labels)
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
@@ -198,10 +213,11 @@ def run_epoch(
 
         if args.bottleneck:
             # computes the binary accuracy over all attributes
-            attributes = torch.cat(outputs[1:], dim=1).to(outputs[0].device)
+            attributes = torch.cat(outputs[1:], dim=1).to(device)
 
             sigmoid_outputs = torch.nn.Sigmoid()(attributes)
-            attr_acc = binary_accuracy(sigmoid_outputs, attr_labels)
+            attr_acc = binary_accuracy(sigmoid_outputs, attr_labels_var)
+
             attr_acc_meter.update(attr_acc, attributes.size(0))
             tb_writer.add_scalar("Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch)
 
@@ -213,36 +229,45 @@ def run_epoch(
             class_acc_meter.update(class_acc[0], softmax_outputs.size(0))
             tb_writer.add_scalar("Class Accuracy/train", class_acc_meter.avg.item(), epoch)
 
-            
             if not args.no_img:
                 attributes = torch.cat(outputs[1:], dim=1)
 
                 sigmoid_outputs = torch.nn.Sigmoid()(attributes)
-                attr_acc = binary_accuracy(sigmoid_outputs, attr_labels)
+                attr_acc = binary_accuracy(sigmoid_outputs, attr_labels_var)
+
                 attr_acc_meter.update(attr_acc, attributes.size(0))
                 tb_writer.add_scalar("Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch)
 
+        total_loss = None
         if attr_criterion is not None:
             if args.bottleneck:
-                total_loss = sum(losses) / args.n_attributes
+                print(len(losses))
+                total_loss = [(sum(losses) / args.n_attributes).detach()]
+                back_loss = sum(losses) /args.n_attributes
+
             else:
                 # cotraining, loss by class prediction and loss by attribute prediction have the same weight
-                total_loss = losses[0] + sum(losses[1:])
+                attr_loss = sum(losses[1:])
                 if args.normalize_loss:
-                    total_loss = total_loss / (
-                        1 + args.attr_loss_weight * args.n_attributes
+                    attr_loss = attr_loss / (
+                        args.attr_loss_weight * args.n_attributes
                     )
+
+                back_loss = losses[0] + attr_loss
+                total_loss = (losses[0].detach(), attr_loss.detach())
         else:
             # finetune
-            total_loss = sum(losses)
+            back_loss = losses[0]
+            total_loss = [losses[0].detach()]
 
-        loss_meter.update(total_loss.item(), inputs.size(0))
+        loss_meter.update(np.array([x.cpu() for x in total_loss]), len(total_loss))
+
         if is_training:
             optimizer.zero_grad()
-            total_loss.backward()
+            back_loss.backward()
             optimizer.step()
 
-    return loss_meter, class_acc_meter
+    return loss_meter, class_acc_meter, attr_acc_meter
 
 
 def train(model: nn.Module, args: Namespace) -> float:
@@ -317,7 +342,7 @@ def train(model: nn.Module, args: Namespace) -> float:
                 tb_writer=tb_writer,
             )
         else:
-            train_loss_meter, train_acc_meter = run_epoch(
+            train_loss_meter, train_acc_meter, train_attr_acc_meter = run_epoch(
                 model,
                 optimizer,
                 train_loader,
@@ -344,7 +369,7 @@ def train(model: nn.Module, args: Namespace) -> float:
                     tb_writer=tb_writer,
                 )
             else:
-                val_loss_meter, val_acc_meter = run_epoch(
+                val_loss_meter, val_acc_meter, val_attr_acc_meter = run_epoch(
                     model,
                     optimizer,
                     val_loader,
@@ -367,6 +392,12 @@ def train(model: nn.Module, args: Namespace) -> float:
 
         train_loss_avg = train_loss_meter.avg
         val_loss_avg = val_loss_meter.avg
+
+
+        if isinstance(train_loss_avg, np.ndarray):
+            train_loss_avg = train_loss_avg.sum()
+        if isinstance(val_loss_avg, np.ndarray):
+            val_loss_avg = val_loss_avg.sum()
 
         time_duration = time.time() - start_time
         logger.write(

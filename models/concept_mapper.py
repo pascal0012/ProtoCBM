@@ -10,6 +10,7 @@ from models.components import FC
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from utils.mappings import NUM_ATTRIBUTES
+from cub.config import N_CLASSES
 
 
 class ProtoMod(nn.Module):
@@ -44,7 +45,7 @@ class ProtoMod(nn.Module):
 
 
 class CBMMapper(nn.Module):
-    def __init__(self, channel_dim, expand_dim):
+    def __init__(self, channel_dim, expand_dim, is_aux):
         """
             Args:
                 expand_dim: The dimensionality of the hidden layer MLP. If = 0, no extra hidden layer is inserted, but a direct mapping is cretated.
@@ -55,17 +56,24 @@ class CBMMapper(nn.Module):
         for _ in range(NUM_ATTRIBUTES):
             self.all_fc.append(FC(channel_dim, 1, expand_dim))
 
+        self.is_aux = is_aux
+
 
     def forward(self, x):
         """Given a feature map of shape [B, C, H , W], creates concepts from it."""
         # Adaptive average pooling
         
+        #! Wir verwenden für aux und normal die selben operationen
+        #! also im originalcode gibt es kein dropout für aux
+
         # N x C x 1 x 1
         x = F.adaptive_avg_pool2d(x, (1, 1)) 
-        x = F.dropout(x, training=self.training)
+        if not self.is_aux:
+            x = F.dropout(x, training=self.training)
 
         # N x C
         x = x.view(x.size(0), -1)
+        
         out = []
         for fc in self.all_fc:
             out.append(fc(x))

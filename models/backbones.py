@@ -160,10 +160,8 @@ class InceptionAux(nn.Module):
         self.expand_dim = expand_dim
 
     def forward(self, x):
-        # N x 768 x 17 x 17
-        x = F.avg_pool2d(x, kernel_size=5, stride=3)
-        # N x 768 x 5 x 5
-        x = self.conv0(x)
-        # N x 128 x 5 x 5
-        return self.conv1(x)
-        # N x 768 x 1 x 1
+        # in_shape: (N x 768 x 17 x 17)
+        x = F.avg_pool2d(x, kernel_size=5, stride=3) # N x 768 x 5 x 5
+        x = self.conv0(x)                            # N x 128 x 5 x 5
+        
+        return self.conv1(x) # N x in_channels x 5 x 5 (in_channels = 768)
