@@ -10,6 +10,14 @@ def get_eval_transform_for_model(model: nn.Module, args: Namespace):
         but not intensity ones (e.g. Normalize, Jitter).
     """
     if args.model_name == "cbm" or args.model_name == "protocbm":
+
+        # TODO: DIFFERENTIATE BY BACKBONE
+        """
+        self.val_transform_image = transforms.Compose([transforms.Resize(size = image_size, interpolation=transforms.InterpolationMode.BILINEAR),
+                               transforms.CenterCrop(size = image_size),
+                               transforms.ToTensor(),
+                               transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
+        """
         transform_mean = 0.5
         transform_std = 2
         img_size = model.backbone.image_size

@@ -3,7 +3,7 @@ from models.models import ModelXtoCtoY
 import optuna
 
 from train_protocbm import train
-from utils.train_utils import gather_args
+from utils_protocbm.train_utils import gather_args
 
 def objective(args: Namespace, trial: optuna.Trial):
     # Deepcopy args to avoid overwriting

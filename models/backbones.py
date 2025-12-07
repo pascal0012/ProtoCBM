@@ -19,15 +19,14 @@ class Inception3(nn.Module):
     def __init__(
         self,
         aux_logits=True,
-        n_attributes=0,
         expand_dim=0,
         pretrained=True,
-        freeze=True
+        freeze=True,
+        input_img_size=299,
     ):
         """
         Args:
             aux_logits: whether to also output auxiliary logits
-            n_attributes: number of attributes to predict
             expand_dim: if not 0, add an additional fc layer with expand_dim neurons
             pretrained: whether we should load model weights
         """
@@ -35,7 +34,7 @@ class Inception3(nn.Module):
 
         # Dimensionalities and further properties that can differ between backbones
         self.final_channel_dim = 2048
-        self.image_size = 299
+        self.image_size = input_img_size
         self.output_map_size = 8
 
         # Same, but for aux output maps
@@ -43,7 +42,6 @@ class Inception3(nn.Module):
         self.aux_output_map_size = 1
 
         self.aux_logits = aux_logits
-        self.n_attributes = n_attributes
         self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
         self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
         self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
@@ -61,7 +59,6 @@ class Inception3(nn.Module):
         if aux_logits:
             self.AuxLogits = InceptionAux(
                 768,
-                n_attributes=self.n_attributes,
                 expand_dim=expand_dim,
             )
         self.Mixed_7a = InceptionD(768)
@@ -149,19 +146,82 @@ class InceptionAux(nn.Module):
     def __init__(
         self,
         in_channels,
-        n_attributes=0,
         expand_dim=0,
     ):
         super(InceptionAux, self).__init__()
         self.conv0 = BasicConv2d(in_channels, 128, kernel_size=1)
         self.conv1 = BasicConv2d(128, in_channels, kernel_size=5)
         self.conv1.stddev = 0.01
-        self.n_attributes = n_attributes
         self.expand_dim = expand_dim
 
     def forward(self, x):
-        # in_shape: (N x 768 x 17 x 17)
-        x = F.avg_pool2d(x, kernel_size=5, stride=3) # N x 768 x 5 x 5
-        x = self.conv0(x)                            # N x 128 x 5 x 5
+        # N x 768 x 17 x 17
+        x = F.avg_pool2d(x, kernel_size=5, stride=3)
+        # N x 768 x 5 x 5
+        x = self.conv0(x)
+        # N x 128 x 5 x 5
+        return self.conv1(x)
+        # N x 768 x 1 x 1
+
+
+class DINO(nn.Module):
+    def __init__(
+        self,
+        aux_logits=False,
+        pretrained=True,
+        freeze=True,
+        input_img_size=224,
+        backbone='dino_vitb16'
+    ):
+        super(DINO, self).__init__()
+
+        # Only supported dino backbones for now
+        valid_backbones = ['dino_vitb16', 'dino_vits8', 'dino_vitb8']
+        assert backbone in valid_backbones, f"Only supporting the following backbones: {valid_backbones}, got {backbone}"
+        assert pretrained == True, "The DINO backbone(s) only support pretrained models."
+        self.encoder = torch.hub.load('facebookresearch/dino:main', backbone)
+
+        # Dimensionalities and further properties that can differ between backbones
+        self.final_channel_dim = 768
+        self.patch_size = int(backbone.split("_")[1][4:])
+        self.image_size = input_img_size
+        self.output_map_size = int(self.image_size / self.patch_size)
+
+        # For aux logits
+        self.aux_logits = aux_logits
+        self.aux_use_layer = 9
+        self.aux_final_channel_dim = 768
+        self.aux_output_map_size = 1
+
+        # Freezing / unfreezing the backbone, if unfreezing, unfreeze after layer #unfreeze_after_n_layer
+        self.unfreeze_after_n_layer = 8
+        for param_name, param in self.encoder.named_parameters():
+            if ('blocks' in param_name):
+                block_id = int(param_name.split('.')[1])
+                if not freeze and block_id >= self.unfreeze_after_n_layer:
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = False
+            else:
+                param.requires_grad = False 
+    
+    def forward(self, x):
+
+        self.encoder.eval()
+        x = self.encoder.prepare_tokens(x)
+
+        for blk_idx, blk in enumerate(self.encoder.blocks):
+            x = blk(x)
+            if self.training and self.aux_logits and blk_idx+1 == self.aux_use_layer:
+                B, _, C = x.shape
+                aux_out = x[:, 1:].view(B, self.output_map_size, self.output_map_size, C).permute(0, 3, 1, 2)
+
         
-        return self.conv1(x) # N x in_channels x 5 x 5 (in_channels = 768)
+        # Remove the CLS token, turn from [B, N, C] into [B, C, H, W]
+        B, _, C = x.shape
+        out = x[:, 1:] 
+        out = out.view(B, self.output_map_size, self.output_map_size, C)  # Split token dim into grid
+        out = out.permute(0, 3, 1, 2)  # Re-order to match CNN-based output shape
+        if self.training and self.aux_logits:
+            return out, aux_out
+        return out

@@ -9,8 +9,7 @@ from models.components import FC
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils.mappings import NUM_ATTRIBUTES
-from cub.config import N_CLASSES
+from utils_protocbm.mappings import NUM_ATTRIBUTES
 
 
 class ProtoMod(nn.Module):

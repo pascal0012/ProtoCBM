@@ -7,8 +7,8 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils.mappings import PART_SEG_GROUPS
-from utils.index_translation import map_attribute_ids_to_part_seg_group_id, get_attribute_names
+from utils_protocbm.mappings import PART_SEG_GROUPS
+from utils_protocbm.index_translation import map_attribute_ids_to_part_seg_group_id, get_attribute_names
 
 
 def compute_soft_iou(att: torch.Tensor, gt: torch.Tensor, eps = 1e-7):

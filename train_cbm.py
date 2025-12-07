@@ -24,8 +24,8 @@ from cub.config import (
 
 # from CUB import gen_cub_synthetic
 from cub.dataset import find_class_imbalance, load_data
-from utils.misc import Colors
-from utils.train_utils import (
+from utils_protocbm.misc import Colors
+from utils_protocbm.train_utils import (
     AverageMeter,
     LossMeter,
     accuracy,

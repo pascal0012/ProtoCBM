@@ -7,7 +7,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from models.backbones import Inception3
+from models.backbones import Inception3, DINO
 from models.components import MLP
 from models.concept_mapper import CBMMapper, ProtoMod
 from models.model_connector import ModelConnector
@@ -97,10 +97,18 @@ def backbone_by_name(args: Namespace) -> Inception3:
     if args.backbone == "inception":
         return Inception3(
             args.use_aux,
-            args.n_attributes,
             args.expand_dim,
             args.backbone_pretrained,
             args.backbone_freeze,
+            299
+        )
+    if "dino" in args.backbone:
+        return DINO(
+            args.use_aux,
+            args.backbone_pretrained,
+            args.backbone_freeze,
+            224,
+            args.backbone,
         )
     else:
         raise ValueError(f"Unknown backbone name: {args.backbone}")

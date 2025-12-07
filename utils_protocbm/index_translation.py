@@ -6,7 +6,7 @@ from typing import Dict, List, Union
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from cub.config import N_ATTRIBUTES
-from utils.mappings import MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS, CBM_SELECTED_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
+from utils_protocbm.mappings import MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS, CBM_SELECTED_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
 
 
 # Build a mapping from old index -> new index

@@ -13,7 +13,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils.mappings import PART_SEG_GROUPS
+from utils_protocbm.mappings import PART_SEG_GROUPS
 from cub.config import BASE_DIR, N_ATTRIBUTES
 
 
@@ -377,7 +377,7 @@ class CUBLocalizationDataset(Dataset):
 
 
 # TODO: load pkl from path + corresponding file name
-def load_data(args, split: Literal["train", "val", "test"], resol=299):
+def load_data(args, split: Literal["train", "val", "test"]):
     """
     Note: Inception needs (299,299,3) images with inputs scaled between -1 and 1
     Loads data with transformations applied, and upsample the minority class if there is class imbalance and weighted loss is not used
@@ -393,21 +393,7 @@ def load_data(args, split: Literal["train", "val", "test"], resol=299):
     pkl_paths = [os.path.join(BASE_DIR, args.data_dir, f"{split}.pkl")]
     
     is_training = any(['train.pkl' in f for f in pkl_paths])
-    if is_training:
-        transform = transforms.Compose([
-            transforms.ColorJitter(brightness=32/255, saturation=(0.5, 1.5)),
-            transforms.RandomResizedCrop(resol),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(), #implicitly divides by 255
-            transforms.Normalize(mean = [0.5, 0.5, 0.5], std = [2, 2, 2])
-        ])
-    else:
-        transform = transforms.Compose([
-            transforms.CenterCrop(resol),
-            transforms.ToTensor(), #implicitly divides by 255
-            transforms.Normalize(mean = [0.5, 0.5, 0.5], std = [2, 2, 2])
-        ])
-
+    transform = get_transform_by_backbone(is_training, args)
     dataset = CUBDataset(
         pkl_paths, 
         args.mode == "CY", 
@@ -432,6 +418,39 @@ def load_data(args, split: Literal["train", "val", "test"], resol=299):
         persistent_workers=True,  # Keep workers alive between epochs
     )
     return loader
+
+
+def get_transform_by_backbone(is_training, args):
+
+    if is_training:
+        if args.backbone == "inception":
+            return transforms.Compose([
+                transforms.ColorJitter(brightness=32/255, saturation=(0.5, 1.5)),
+                transforms.RandomResizedCrop(299),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(), #implicitly divides by 255
+                transforms.Normalize(mean = [0.5, 0.5, 0.5], std = [2, 2, 2])
+            ])
+        if "dino" in args.backbone:
+            return transforms.Compose([
+                    transforms.Resize(size=224, interpolation=transforms.InterpolationMode.BILINEAR),
+                    transforms.RandomCrop(224),
+                    transforms.RandomHorizontalFlip(p=0.5),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+                ])
+    else:
+        if args.backbone == "inception":
+            return transforms.Compose([
+                transforms.CenterCrop(299),
+                transforms.ToTensor(), #implicitly divides by 255
+                transforms.Normalize(mean = [0.5, 0.5, 0.5], std = [2, 2, 2])
+            ])
+        if "dino" in args.backbone:
+            return transforms.Compose([transforms.Resize(size=224, interpolation=transforms.InterpolationMode.BILINEAR),
+                               transforms.CenterCrop(size=224),
+                               transforms.ToTensor(),
+                               transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
 
 
 def find_class_imbalance(pkl_file, multiple_attr=False, attr_idx=-1):
