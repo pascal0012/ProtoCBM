@@ -394,9 +394,13 @@ def train(model: nn.Module, args: Namespace) -> float:
                     tb_writer=tb_writer,
                 )
 
-        if best_val_acc < val_acc_meter.avg:
+        
+        if (
+            (best_val_acc < val_acc_meter.avg and not args.bottleneck) or 
+            (best_val_acc < val_attr_acc_meter.avg and args.bottleneck)
+        ):
             best_val_epoch = epoch
-            best_val_acc = val_acc_meter.avg
+            best_val_acc = val_attr_acc_meter.avg if args.bottleneck else val_acc_meter.avg 
 
             logger.write("New model best model at epoch %d\n" % epoch)
             torch.save(
