@@ -17,7 +17,7 @@ class ModelConnector(nn.Module):
         self,
         backbone: nn.Module,
         concept_mapper: Optional[nn.Module], # wie ist das bitte optional?
-        classifier: Optional[nn.Module],
+        classifier: Optional[nn.Module] = None,
         use_aux: bool = False,
         concept_activation: Optional[Literal["sigmoid", "relu"]] = None,
         aux_concept_mapper: Optional[nn.Module] = None,
@@ -62,6 +62,9 @@ class ModelConnector(nn.Module):
         mapper = self.aux_concept_mapper if aux_forward else self.concept_mapper
         mapped_input = mapper(features)
 
+        if self.classifier is None:
+            return mapped_input
+
         # take the feature vector and map to class logits
         cls_input = torch.cat(mapped_input, dim=1)
         
@@ -102,9 +105,8 @@ class ModelConnector(nn.Module):
             # Unpack main feature tuple, construct one tuple
             output, aux_output = self.backbone(x)
             
-            
             # old code  self.forward_stage2(outputs), self.forward_stage2(aux_outputs)
-            return *self.forward_fn(output), self.forward_fn(aux_output, aux_forward=True)
+            return self.forward_fn(output), self.forward_fn(aux_output, aux_forward=True)
 
         if self.backbone is not None:
             x = self.backbone(x)

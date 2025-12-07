@@ -1,9 +1,9 @@
 # Architecture and Training config 
-mode: XCY   # XY and XC and CY
+mode: XC   # XY and XC and CY
 n_attributes: 112
 no_img: False
 use_attr: True
-bottleneck: False
+bottleneck: True
 
 # Model specifics
 model_name: cbm
@@ -11,7 +11,7 @@ concept_mapper: cbm
 concept_activation: none    # "relu" or "sigmoid"
 
 # Training Paths
-log_dir: outputs/CBM
+log_dir: outputs/CBM-XC
 image_dir: data/CUB_200_2011/images
 data_dir: data/CUB_processed/class_attr_data_10
 checkpoint: ""
@@ -36,4 +36,4 @@ expand_dim: 0
 normalize_loss: true
 weighted_loss: multiple
 loss_attr_weight: 1.0
-attr_loss_weight: 1.0
+attr_loss_weight: 0.1

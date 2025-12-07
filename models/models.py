@@ -27,11 +27,7 @@ def ModelXtoC(args: Namespace):
             args, backbone.aux_final_channel_dim, is_aux=True
         )
 
-    classifier = MLP(
-        input_dim=args.n_attributes,
-        num_classes=N_CLASSES,
-        expand_dim=args.expand_dim,
-    )
+    classifier = None
     return ModelConnector(
         backbone,
         concept_mapper,
@@ -39,7 +35,6 @@ def ModelXtoC(args: Namespace):
         args.use_aux,
         args.concept_activation,
         concept_mapper_aux,
-        concept_mapper,
     )
 
 
