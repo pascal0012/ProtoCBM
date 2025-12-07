@@ -174,8 +174,8 @@ def visualise_localization_acc_boxes(
     batch_ious,
     part_names,
     batch_idx=0,
-    t_mean=0.5,
-    t_std=2,
+    t_mean=(0.5, 0.5, 0.5),
+    t_std=(2, 2, 2),
     save_path=""
 ):
     """
@@ -278,8 +278,8 @@ def visualise_part_segmentations(
     batch_nr,
     attributes=10,
     batch_idx=None,
-    t_mean=0.5,
-    t_std=2,
+    t_mean=(0.5, 0.5, 0.5),
+    t_std=(2, 2, 2),
     save_path=""
 ):
     """

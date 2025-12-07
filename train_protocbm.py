@@ -112,7 +112,7 @@ def epoch_wrapper(
         if is_training:
             optimizer.zero_grad()
             total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=7.0)
             optimizer.step()
 
     for i in range(loss_meter.n_losses):
