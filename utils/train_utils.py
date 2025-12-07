@@ -266,9 +266,8 @@ def binary_accuracy(similarity_scores, target):
     acc = acc * 100 / np.prod(np.array(target.size()))
     return acc
 
-def compute_attr_accuracy(outputs, attr_labels_var, device):
+def compute_attr_accuracy(attributes, attr_labels_var):
     """Compute binary accuracy over all attributes."""
-    attributes = torch.cat(outputs[1:], dim=1).to(device)
     sigmoid_outputs = torch.nn.Sigmoid()(attributes)
     return binary_accuracy(sigmoid_outputs, attr_labels_var), attributes.size(0)
 
