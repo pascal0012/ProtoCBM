@@ -212,7 +212,7 @@ def load_transform(mode: str, resol: int = 299):
     return transform
 
 
-def find_fist_conv(model: nn.Module, n_last: int = 20):
+def find_fist_conv(wrapped_model: nn.Module):
     """
     Find the first convolutional layer in the model's state dictionary.
 
@@ -224,10 +224,13 @@ def find_fist_conv(model: nn.Module, n_last: int = 20):
     """
 
     layer = None
-    for i in list(model.state_dict().keys())[-n_last:][::-1]:
+    full_dict = list(wrapped_model.state_dict().keys())
+    backbone_dict = [k for k in full_dict if 'backbone' in k][::-1]
+
+    for i in backbone_dict:
         if i.endswith("conv.weight"):
             layer_name = i.replace(".weight", "")
-            layer = model.get_submodule(layer_name)
+            layer = wrapped_model.get_submodule(layer_name)
             break
 
     if layer is None:

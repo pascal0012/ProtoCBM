@@ -14,10 +14,11 @@ class WrapperCUB(nn.Module):
 
     def forward(self, x):
         out = self.model(x)
-        
+        _class_pred, attributes = out[0], out[1:]
+
         # If model returns a list, select one element or concatenate them
         if isinstance(out, (list, tuple)):
-            out = out[self.out_index]
+            out = attributes[self.out_index]
 
         # Now ensure it's a tensor
         assert isinstance(out, torch.Tensor), "Selected output must be a tensor"

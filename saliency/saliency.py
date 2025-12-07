@@ -75,7 +75,7 @@ def calculate_cam(
     # get the last conv layer
     if source_conv is None:
         # find the last convolutional layer automatically
-        last_conv = find_fist_conv(wrapped_model, n_last=20)
+        last_conv = find_fist_conv(wrapped_model)
 
     layer_gc = LayerGradCam(wrapped_model, last_conv)
     attr = layer_gc.attribute(input_im, target)
