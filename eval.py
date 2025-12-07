@@ -115,21 +115,22 @@ def eval(args):
 
             # Compute IoU between part segmentation masks and our saliency maps, for each attribute
             # Map out unmapped attributes from the saliency mask
-            spr, cpr, saliency_maps_upsampled, seg_masks_per_attribute = compute_IoU_to_seg_masks(
+            iou_scores, spr, cpr, saliency_maps_upsampled, seg_masks_per_attribute = compute_IoU_to_seg_masks(
                 saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group
             )
             iou_sum_per_attr += spr
             iou_count_per_attr += cpr
 
             #create_attribute_mosaic(inputs, saliency_maps, attribute_names, scores)
-            #if data_idx > 12:
-            #    break
+            if data_idx > 12:
+                break
 
             # Visualise part segmentations with saliency
             if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
                 visualise_part_segmentations(
-                    inputs, saliency_maps_upsampled, seg_masks_per_attribute, attribute_names,
-                    data_idx, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg
+                    inputs, saliency_maps_upsampled, seg_masks_per_attribute,
+                    attribute_names, iou_scores, 
+                    source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg
                 )
 
                 visualise_localization_acc_boxes(

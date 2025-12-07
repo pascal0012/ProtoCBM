@@ -270,6 +270,17 @@ def visualise_localization_acc_boxes(
         )
         axes[1, col].add_patch(rect)
 
+        # Show this box on image too to assess overlap
+        rect = patches.Rectangle(
+            (x1, y1),    
+            width,
+            height,
+            linewidth=2,
+            edgecolor='black',
+            facecolor='none'
+        )
+        axes[0, col].add_patch(rect)
+
 
     axes[0, 0].set_ylabel("Image with GT BB")
     axes[1, 0].set_ylabel("Attention with Pred BB")
@@ -288,7 +299,8 @@ def visualise_part_segmentations(
     saliency_maps,
     seg_masks,
     attribute_names,
-    batch_nr,
+    iou_scores,
+    source_paths=None,
     attributes=10,
     batch_idx=None,
     t_mean=(0.5, 0.5, 0.5),
@@ -300,7 +312,8 @@ def visualise_part_segmentations(
         saliency_maps: torch.Tensor of [B, A, H, W] of the saliency maps matched to the segmentation mask shape, per attribute A
         seg_masks: torch.Tensor of [B, A, H, W] the segmentation masks, per attribute A
         attribute_names: List of [A], giving each attribute its name
-        batch_nr: The current batch we are looking at
+        iou_scores: The IoU scores for each img, per attribute [B, A]
+        source_paths: The paths to the image sources, will be rendered into the image if given
         attributes: Either a list of attributes that are to be visualized, or a number of how many random attributes to sample.
         batch_idx: The index in the batch from which we extract images, defaults to random one
         t_mean: The mean applied during preprocessing of the image
@@ -320,6 +333,12 @@ def visualise_part_segmentations(
     masks = saliency_maps[batch_idx][attributes]
     seg_masks = seg_masks[batch_idx][attributes]
     attr_names = [attribute_names[i] for i in attributes]
+    ious = iou_scores[batch_idx][attributes].cpu().detach().numpy()
+    if source_paths is not None:
+        img_name = source_paths[batch_idx]
+        img_name = "_".join(img_name.split(os.sep)[-2:]).rstrip(".jpg")
+    else:
+        img_name = f"id{batch_idx}"
 
     # Denorm image
     img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
@@ -330,8 +349,8 @@ def visualise_part_segmentations(
 
     for col in range(n_attributes):
 
-        # Attribute name
-        axes[0, col].set_title(attr_names[col], fontsize=10, pad=4)
+        # Attribute name along with the IoU score for that (gt, pred) pair
+        axes[0, col].set_title(f"{attr_names[col]}\n{ious[col]:.4f}", fontsize=9, pad=4)
 
         # Attention mask overlay
         attn_mask = masks[col].cpu().detach().numpy()
@@ -351,5 +370,5 @@ def visualise_part_segmentations(
     # Create string for this img
     attr_str = "_".join([str(a) for a in attributes])
     plt.tight_layout()
-    plt.savefig(os.path.join(save_path, f"b{batch_nr}_id{batch_idx}_attr{attr_str}.png"), dpi=200, bbox_inches='tight')
+    plt.savefig(os.path.join(save_path, f"{img_name}_attr{attr_str}.png"), dpi=200, bbox_inches='tight')
     plt.close()

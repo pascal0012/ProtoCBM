@@ -31,7 +31,7 @@ def get_eval_transform_for_model(model: nn.Module, args: Namespace):
             ])
 
         if args.backbone == "inception":
-            transform_mean = (0.5, 0.5, 0.5),
+            transform_mean = (0.5, 0.5, 0.5)
             transform_std = (2, 2, 2)
             img_size = model.backbone.image_size
             transform = transforms.Compose([

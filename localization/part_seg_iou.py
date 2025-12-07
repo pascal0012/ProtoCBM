@@ -129,6 +129,7 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
             map_attr_id_to_part_seg_group: The mapping of attribute IDs to the corresponding part segmentation group
             hard_iou: Whether IoU is to be computed on binarized saliency maps (True) or not (False)
         Returns:
+            iou_per_attr: The IoU per attribute, for each batch [B, A]
             iou_sum_per_attr: The sum of IoU per attribute, over all batches [A]
             iou_count_per_attr: The count of valid IoU entries per attribute, over all batches [A]
             saliency_maps_upsampled: The saliency maps, upsampled to part segmentation shape [B, A, H, W]
@@ -162,7 +163,7 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
     iou_per_attr[~gt_presence_mask] = 0 
     iou_sum_per_attr = iou_per_attr.sum(dim=0)  # Sum per attribute
     iou_count_per_attr = gt_presence_mask.sum(dim=0)  # Count valid entries
-    return iou_sum_per_attr, iou_count_per_attr, saliency_maps_upsampled, seg_masks_per_attribute
+    return iou_per_attr, iou_sum_per_attr, iou_count_per_attr, saliency_maps_upsampled, seg_masks_per_attribute
 
 
 def compute_mIoU_statistics(
