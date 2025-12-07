@@ -244,7 +244,7 @@ def run_epoch(
 
             # list of [N_ATTR, batch_size] tensors -> (B, N)
             reshaped_preds = torch.concat(pred_attr, dim=1).to(device)
-            attr_acc, batch_size = compute_attr_accuracy(reshaped_preds, attr_labels_var, device)
+            attr_acc, batch_size = compute_attr_accuracy(reshaped_preds, attr_labels_var)
             attr_acc_meter.update(attr_acc, batch_size)
             if is_training:
                 tb_writer.add_scalar("Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch)
