@@ -231,25 +231,34 @@ def run_epoch(
             class_acc = accuracy(softmax_outputs, labels, topk=(1,))
             class_acc_meter.update(class_acc[0], softmax_outputs.size(0))
             if is_training:
-                tb_writer.add_scalar("Class Accuracy/train", class_acc_meter.avg.item(), epoch)
+                tb_writer.add_scalar(
+                    "Class Accuracy/train", class_acc_meter.avg.item(), epoch
+                )
             else:
-                tb_writer.add_scalar("Class Accuracy/val", class_acc_meter.avg.item(), epoch)
+                tb_writer.add_scalar(
+                    "Class Accuracy/val", class_acc_meter.avg.item(), epoch
+                )
 
         # Compute attribute accuracy (bottleneck always, otherwise when using images)
         if args.bottleneck or not args.no_img:
-
-            pred_attr = outputs 
-            if args.bottleneck:
+            pred_attr = outputs
+            if not args.bottleneck:
                 pred_attr = pred_attr[1:]
 
             # list of [N_ATTR, batch_size] tensors -> (B, N)
             reshaped_preds = torch.concat(pred_attr, dim=1).to(device)
-            attr_acc, batch_size = compute_attr_accuracy(reshaped_preds, attr_labels_var)
+            attr_acc, batch_size = compute_attr_accuracy(
+                reshaped_preds, attr_labels_var
+            )
             attr_acc_meter.update(attr_acc, batch_size)
             if is_training:
-                tb_writer.add_scalar("Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch)
+                tb_writer.add_scalar(
+                    "Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch
+                )
             else:
-                tb_writer.add_scalar("Attribute Accuracy/val", attr_acc_meter.avg.item(), epoch)
+                tb_writer.add_scalar(
+                    "Attribute Accuracy/val", attr_acc_meter.avg.item(), epoch
+                )
 
         total_loss = None
         if attr_criterion is not None:
@@ -400,7 +409,7 @@ def train(model: nn.Module, args: Namespace) -> float:
         if isinstance(train_loss_avg, np.ndarray):
             train_loss_string = " - ".join(
                 [
-                    Colors.CYAN + f"(T){key}/loss: {value:.4f}" + Colors.ENDC
+                    Colors.MAGENTA + f"(T){key}/loss: {value:.4f}" + Colors.ENDC
                     for (key, value) in zip(loss_labels, train_loss_avg)
                 ]
             )
@@ -417,6 +426,41 @@ def train(model: nn.Module, args: Namespace) -> float:
         else:
             val_loss_string = f"Val/loss: {val_loss_avg:.4f}"
 
+        print(train_acc_meter.avg)
+
+        if args.bottleneck:
+            train_acc_str = (
+                Colors.GREEN
+                + f"Train/attr_acc: {train_attr_acc_meter.avg.item():.4f}"
+                + Colors.ENDC
+            )
+        else:
+            train_acc_str = " - ".join(
+                [
+                    Colors.GREEN
+                    + f"Train/acc: {train_acc_meter.avg.item():.4f}"
+                    + Colors.ENDC,
+                    Colors.GREEN
+                    + f"Train/attr_acc: {train_attr_acc_meter.avg.item():.4f}"
+                    + Colors.ENDC,
+                ]
+            )
+
+        if args.bottleneck:
+            val_acc_str = (
+                Colors.GREEN
+                + f"Val/attr_acc: {val_attr_acc_meter.avg.item():.4f}"
+                + Colors.ENDC,
+            )
+
+        else:
+            val_acc_str = " - ".join([
+                Colors.GREEN + f"Val/acc: {val_acc_meter.avg.item():.4f}" + Colors.ENDC,
+                Colors.GREEN
+                + f"Val/attr_acc: {val_attr_acc_meter.avg.item():.4f}"
+                + Colors.ENDC,
+            ])
+
         time_duration = time.time() - start_time
         logger.write(
             " - ".join(
@@ -424,11 +468,10 @@ def train(model: nn.Module, args: Namespace) -> float:
                     datetime.now().strftime("%H:%M:%S"),
                     f"Epoch [{epoch}]",
                     train_loss_string,
-                    Colors.GREEN + f"Train/acc: {train_acc_meter.avg.item():.4f}" + Colors.ENDC,
-                    Colors.GREEN + f"Train/attr_acc: {train_attr_acc_meter.avg.item():.4f}" + Colors.ENDC,
+                    train_acc_str,
+                    "\n",
                     val_loss_string,
-                    Colors.YELLOW + f"Val/acc: {val_acc_meter.avg.item():.4f}" + Colors.ENDC,
-                    Colors.YELLOW + f"Val/attr_acc: {val_attr_acc_meter.avg.item():.4f}" + Colors.ENDC,
+                    val_acc_str,
                     f"Best val epoch: {best_val_epoch}",
                     f"Time: {time_duration:.2f} sec",
                 ]
