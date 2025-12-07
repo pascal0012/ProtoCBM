@@ -263,7 +263,7 @@ def binary_accuracy(similarity_scores, target):
     pred = similarity_scores >= 0.5
 
     acc = (pred.int()).eq(target.int()).sum()
-    acc = acc / np.prod(np.array(target.size()))
+    acc = acc * 100 / np.prod(np.array(target.size()))
     return acc
 
 def compute_attr_accuracy(outputs, attr_labels_var, device):

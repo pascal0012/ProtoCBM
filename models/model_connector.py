@@ -42,7 +42,7 @@ class ModelConnector(nn.Module):
     def _forward_func_by_name(self, name: str):
         if name == "CBMMapper":
             return self.forward_featuresCBM
-        elif name == "PROTO":
+        elif name == "ProtoMod":
             return self.forward_featuresPROTO
         else:
             raise ValueError(f"Unknown forward function name: {name}")
@@ -104,7 +104,7 @@ class ModelConnector(nn.Module):
             
             
             # old code  self.forward_stage2(outputs), self.forward_stage2(aux_outputs)
-            return self.forward_fn(output), self.forward_fn(aux_output, aux_forward=True)
+            return *self.forward_fn(output), self.forward_fn(aux_output, aux_forward=True)
 
         if self.backbone is not None:
             x = self.backbone(x)

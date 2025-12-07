@@ -122,7 +122,7 @@ def epoch_wrapper(
         )
 
     # Using a joint criterion
-    return loss_meter, class_acc_meter, attr_acc_meter, 2 - attr_acc_meter.avg - class_acc_meter.avg
+    return loss_meter, class_acc_meter, attr_acc_meter, - attr_acc_meter.avg - class_acc_meter.avg
 
 
 def train(model: nn.Module, args: Namespace) -> float:
