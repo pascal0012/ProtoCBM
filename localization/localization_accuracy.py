@@ -38,12 +38,21 @@ def compute_localization_accuracy(
     #get argmax attribute per part
     # Per part k \in K, get the argmax index (attribute idx that had the highest activation for that part) for each img in the batch
     argmax_per_part = [] # max index per part, -1 if part not present
+    max_scores_per_part = []
     for part in part_dict.values():
         #take argmax of each part group
         subset = pre_attri[:, part_attribute_mapping_tensor[part]]
+        
         argmax_in_subset = subset.argmax(dim=1)
         result = part_attribute_mapping_tensor[part][argmax_in_subset] #now res should be batchsize shape
+        
         argmax_per_part.append(result)
+
+        max_score = pre_attri[torch.arange(pre_attri.shape[0]), result]  # [batch_size]
+        max_scores_per_part.append(max_score)
+        
+
+    max_scores_per_part = torch.stack(max_scores_per_part).t()
 
     # Create a mask to track which part bounding boxes are non-empty
     valid_mask = (bounding_box_per_part.sum(dim=-1) != 0)  # [B, K]
@@ -72,7 +81,7 @@ def compute_localization_accuracy(
         sub_res = dict(zip(list(part_dict.values()), ious[i].tolist()))
         collector_list.append(sub_res)
 
-    return optimal_masks_batch, bounding_box_per_part, ious, resized_heatmaps
+    return optimal_masks_batch, bounding_box_per_part, ious, resized_heatmaps, max_scores_per_part
 
 
 def create_part_attribute_mapping_tensor(part_attribute_mapping: Dict[str, List[int]], device):
@@ -125,18 +134,22 @@ def compute_optimal_masks_per_mask(heatmaps, part_bbs):
             best_y = (flat_idx // response.shape[1]).item()
             best_x = (flat_idx % response.shape[1]).item()
 
+            #best_y = H - best_y
+            #best_x = W - best_x
+
+
             # Compute final bounding box
             x1_opt = max(0, best_x)
             y1_opt = max(0, best_y)
-            x2_opt = min(H, best_x + mask_w)
-            y2_opt = min(W, best_y + mask_h)
+            x2_opt = min(W, best_x + mask_w)
+            y2_opt = min(H, best_y + mask_h)
 
             boxes[b, k] = torch.tensor([x1_opt, y1_opt, x2_opt, y2_opt], device=device)
 
     return boxes
 
 
-def calculate_average_partwise_localization_accuracy(all_ious:list[dict], subgroup_mapping:dict, IoU_thr: float=0.5):
+def calculate_average_partwise_localization_accuracy(all_ious:list[dict], subgroup_mapping:dict, IoU_thr: float=0.5, blacklist=[]):
     #compute acc with ious and threshold for all images per part
     #all ious = list with each item having a matching from part to iou
 
@@ -166,11 +179,13 @@ def calculate_average_partwise_localization_accuracy(all_ious:list[dict], subgro
             collect[part].append(1 if value >= IoU_thr else 0) #binary results for acc
 
     #divide sum by amount
+
     res = {}
     for part, collected_ious in collect.items():
         res[part] = sum(collected_ious)/len(collected_ious) if len(collected_ious) != 0 else -1
 
-    mean_iou = [x for x in res.values() if x != -1]
+
+    mean_iou = [x for name, x in res.items() if x != -1 and name not in blacklist]
     mean_iou_acc = sum(mean_iou)/len(mean_iou)
 
     print("\n--------- LOCALIZATION ACCURACY ---------\n")

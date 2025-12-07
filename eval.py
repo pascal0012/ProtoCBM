@@ -11,7 +11,7 @@ import yaml
 from cub.dataset import CUBLocalizationDataset
 from cub.config import BASE_DIR
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics, create_mapping_attributes_to_part_seg_group
-from localization.visualise import visualise_part_segmentations, visualise_localization_acc_boxes
+from localization.visualise import create_attribute_mosaic, visualise_part_segmentations, visualise_localization_acc_boxes
 from localization.localization_accuracy import calculate_average_partwise_localization_accuracy, compute_localization_accuracy, create_part_attribute_mapping_tensor
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
@@ -20,6 +20,7 @@ from utils.index_translation import map_attribute_ids_from_cub_to_cbm
 from utils.eval_utils import get_eval_transform_for_model
 from utils.train_utils import accuracy, prepare_model, model_by_mode, gather_args
 from utils.perf import Timer
+from utils.mappings import APN_SELECTED_ATTRIBUTE_IDS, CBM_SELECTED_CUB_ATTRIBUTE_IDS
 
 
 def create_model(args):
@@ -70,8 +71,16 @@ def eval(args):
 
     # Create a mapping tensor for the localization accuracy as well
     loc_acc_collector = []
-    map_parts_to_attributes = map_attribute_ids_from_cub_to_cbm(MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS)
+    if "cbm" in args.model_name:
+        map_parts_to_attributes = map_attribute_ids_from_cub_to_cbm(MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS)
+    elif "apn" in args.model_name:
+        map_parts_to_attributes = MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS
+    else:
+        raise Exception("Unhandled model name for mapping")
+
     map_part_to_attr_loc_acc = create_part_attribute_mapping_tensor(map_parts_to_attributes, device)
+
+    #print(map_part_to_attr_loc_acc)
 
     # Collecting IoU and accuracy values across batches for proper mean
     iou_sum_per_attr = torch.zeros(len(attribute_names), device=device)
@@ -85,7 +94,7 @@ def eval(args):
             # Cast data to device
             data = [v.to(device) if torch.is_tensor(v) else v for v in data]
 
-            inputs, labels, attr_labels, part_seg_masks, part_bbs = data
+            inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts = data
             attr_labels = torch.stack(attr_labels).t()  # N x A
 
             # Pass through model, get model prediction and saliency map per attribute
@@ -97,7 +106,7 @@ def eval(args):
             acc_count += 1
             
             # Compute localization accuracy and collect into our collector
-            loc_optimal_masks_batch, _, loc_ious, loc_resized_heatmaps = compute_localization_accuracy(
+            loc_optimal_masks_batch, _, loc_ious, loc_resized_heatmaps, max_scores_per_part = compute_localization_accuracy(
                                                                                                     scores,
                                                                                                     saliency_maps,
                                                                                                     part_bbs,
@@ -115,6 +124,9 @@ def eval(args):
             iou_sum_per_attr += spr
             iou_count_per_attr += cpr
 
+
+            #create_attribute_mosaic(inputs, saliency_maps, attribute_names, scores)
+
             if data_idx > 12:
                 break
 
@@ -127,9 +139,12 @@ def eval(args):
 
                 visualise_localization_acc_boxes(
                     inputs,
+                    source_paths,
+                    part_gts,
                     loc_resized_heatmaps,
                     loc_optimal_masks_batch,
                     part_bbs,
+                    max_scores_per_part,
                     data_idx,
                     loc_ious,
                     list(dataset.part_dict.values()),
