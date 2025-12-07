@@ -214,7 +214,7 @@ def train(model: nn.Module, args: Namespace) -> float:
         if epoch <= scheduler_stop_epoch:
             scheduler.step()
 
-        if epoch >= 100 and val_acc_meter.avg < 3:
+        if epoch >= 100 and val_class_acc_meter.avg < 3:
             logger.write("Early stopping because of low accuracy")
             break
         if epoch - best_val_epoch >= 100:
