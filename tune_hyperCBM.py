@@ -2,8 +2,8 @@ from argparse import Namespace
 from models.models import ModelXtoCtoY
 import optuna
 
-from train_protocbm import train
-from utils.train_utils import gather_args
+from train_cbm import train
+from utils_protocbm.train_utils import gather_args
 
 
 def objective(args: Namespace, trial: optuna.Trial):
@@ -18,7 +18,7 @@ def objective(args: Namespace, trial: optuna.Trial):
 
     # General arguments to optimize
     args.lr = trial.suggest_categorical("lr", [0.01, 0.005, 0.001, 0.0001])  # type: ignore
-    args.weight_decay = trial.suggest_categorical("weight_decay", [0.0004, 0.00004])  # type: ignore
+    args.weight_decay = trial.suggest_categorical("weight_decay", [0.01, 0.001, 0.0004, 0.00004])  # type: ignore
 
     # CBM specific properties
     args.optimizer = trial.suggest_categorical("optimizer", ["sgd", "Adam", "AdamW"])  # type: ignore
