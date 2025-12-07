@@ -81,6 +81,13 @@ def optimizer_and_scheduler_by_name(model: nn.Module, args: Namespace):
             momentum=0.9,
             weight_decay=args.weight_decay,
         )
+    elif args.optimizer == "AdamW":
+        optimizer = torch.optim.AdamW(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=args.lr,
+            momentum=0.9,
+            weight_decay=args.weight_decay,
+        )
     else:
         optimizer = torch.optim.SGD(
             filter(lambda p: p.requires_grad, model.parameters()),
