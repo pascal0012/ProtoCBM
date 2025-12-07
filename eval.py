@@ -127,8 +127,8 @@ def eval(args):
 
             #create_attribute_mosaic(inputs, saliency_maps, attribute_names, scores)
 
-            if data_idx > 12:
-                break
+            #if data_idx > 12:
+            #    break
 
             # Visualise part segmentations with saliency
             if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
