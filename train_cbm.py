@@ -450,7 +450,7 @@ def train(model: nn.Module, args: Namespace) -> float:
             val_acc_str = (
                 Colors.GREEN
                 + f"Val/attr_acc: {val_attr_acc_meter.avg.item():.4f}"
-                + Colors.ENDC,
+                + Colors.ENDC
             )
 
         else:
