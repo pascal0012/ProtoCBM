@@ -21,9 +21,9 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
         scores: The per-attribute scores [B, A]
         map: The saliency map of the provided method [B, A, H, W]
     """
-    preds, similarity_scores, attention_maps = model(inputs)
 
     if args.saliency_method == "attention":
+        preds, similarity_scores, attention_maps = model(inputs)
         if args.concept_mapper != "protomod":
             raise ValueError(
                 f"Saliency method attention was selected, but concept_mapper is {args.concept_mapper}, must be protomod!"
@@ -34,8 +34,12 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
     elif args.saliency_method == "cam":
         if args.model_name == "protocbm":
             from saliency.wrapper import WrapperProtoCBM
-
             wrapped_model = WrapperProtoCBM(model)
+
+        elif args.model_name == "cbm":
+            from saliency.wrapper import WrapperCUB
+            wrapped_model = WrapperCUB(model)
+
         else:
             raise ValueError(
                 f"CAM saliency method is only supported for protocbm model, got {args.model_name}!"

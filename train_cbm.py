@@ -404,7 +404,7 @@ def train(model: nn.Module, args: Namespace) -> float:
 
             logger.write("New model best model at epoch %d\n" % epoch)
             torch.save(
-                model, os.path.join(args.log_dir, "best_model_%d.pth" % args.seed)
+                model.state_dict(), os.path.join(args.log_dir, "best_model_%d.pth" % args.seed)
             )
 
         train_loss_avg = train_loss_meter.avg

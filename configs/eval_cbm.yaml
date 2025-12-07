@@ -1,0 +1,28 @@
+mode: XCY   # XY and XC and CY
+n_attributes: 112
+
+model_name: cbm
+concept_mapper: cbm
+concept_activation: none    # "relu" or "sigmoid"
+
+saliency_method: cam
+IoU_threshold: 0.5
+
+log_dir: outputs/CBM
+data_dir: data/CUB_200_2011
+split_dir: data/CUB_processed/class_attr_data_10/test.pkl
+vis_every_n: 4
+seed: 1
+
+batch_size: 64
+use_aux: false
+
+backbone: inception
+backbone_pretrained: true
+backbone_freeze: false
+expand_dim: 0
+
+no_img: False
+use_attr: True
+bottleneck: True
+
