@@ -9,6 +9,7 @@ import random
 import torch
 import torch.nn.functional as F
 
+
 def create_attribute_mosaic(
     images,             # torch tensor, shape (I, C, H, W)
     heatmaps,           # torch tensor, shape (I, A, H, W)

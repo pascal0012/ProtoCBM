@@ -5,7 +5,7 @@ model_name: protocbm
 concept_mapper: protomod
 concept_activation: none    # "relu" or "sigmoid"
 
-log_dir: outputs/ProtoCBM
+log_dir: outputs/ProtoCBM_newweights
 image_dir: data/CUB_200_2011/images
 data_dir: data/CUB_processed/class_attr_data_10
 checkpoint: ""
@@ -27,6 +27,6 @@ expand_dim: 0
 # ProtoCBM specifics
 proto_n_vectors: 1
 loss_weight_attribute_reg: 1.0
-loss_weight_map_compactness: 1e-9
-loss_weight_attribute_decorrelation: 4e-2
+loss_weight_map_compactness: 0.1
+loss_weight_attribute_decorrelation: 0.1
 loss_decorrelation_per_group: true

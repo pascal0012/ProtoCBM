@@ -1,6 +1,7 @@
 # General
 BASE_DIR = ''
-N_ATTRIBUTES = 312
+N_ATTRIBUTES = 312  # Number of CUB attributes
+N_ATTRIBUTES_CBM = 112  # How many attributes of those are used by CBM
 N_CLASSES = 200
 
 # Training

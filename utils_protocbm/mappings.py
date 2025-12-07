@@ -20,11 +20,6 @@ CBM_SELECTED_CUB_ATTRIBUTE_IDS = [1, 4, 6, 7, 10, 14, 15, 20, 21, 23, 25, 29, 30
     183, 187, 188, 193, 194, 196, 198, 202, 203, 208, 209, 211, 212, 213, 218, 220, 221, 225, 235, 236, 238, 239, 240, 242, 243, 244, 249, 253, \
     254, 259, 260, 262, 268, 274, 277, 283, 289, 292, 293, 294, 298, 299, 304, 305, 308, 309, 310, 311]
 
-
-APN_SELECTED_ATTRIBUTE_IDS = [i for i in range(1, 313)]
-assert len(APN_SELECTED_ATTRIBUTE_IDS) == 312
-
-
 # GROUPS AS DEFINED BY THE PART SEGMENTATION DATASET FOR CUB, IMPORTANT: left + right masks are joined to one
 PART_SEG_GROUPS = ['body', 'head', 'neck', 'beak', 'tail', 'wing', 'leg', 'eye']
 
@@ -101,5 +96,3 @@ CUB_SELECTED_ATTRIBUTES_PER_GROUP = {
 # GROUPS AS DEFINED BY APN
 CUB_GROUPS = ['head', 'belly', 'breast', 'back', 'wing', 'tail', 'leg', 'others']
 """
-
-NUM_ATTRIBUTES = 112

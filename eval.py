@@ -15,7 +15,7 @@ from localization.visualise import create_attribute_mosaic, visualise_part_segme
 from localization.localization_accuracy import calculate_average_partwise_localization_accuracy, compute_localization_accuracy, create_part_attribute_mapping_tensor
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
-from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS, APN_SELECTED_ATTRIBUTE_IDS, CBM_SELECTED_CUB_ATTRIBUTE_IDS
+from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS, CBM_SELECTED_CUB_ATTRIBUTE_IDS
 from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
 from utils_protocbm.eval_utils import get_eval_transform_for_model
 from utils_protocbm.train_utils import accuracy, prepare_model, model_by_mode, gather_args
@@ -79,8 +79,6 @@ def eval(args):
 
     map_part_to_attr_loc_acc = create_part_attribute_mapping_tensor(map_parts_to_attributes, device)
 
-    #print(map_part_to_attr_loc_acc)
-
     # Collecting IoU and accuracy values across batches for proper mean
     iou_sum_per_attr = torch.zeros(len(attribute_names), device=device)
     iou_count_per_attr = torch.zeros(len(attribute_names), device=device)
@@ -123,9 +121,7 @@ def eval(args):
             iou_sum_per_attr += spr
             iou_count_per_attr += cpr
 
-
             #create_attribute_mosaic(inputs, saliency_maps, attribute_names, scores)
-
             #if data_idx > 12:
             #    break
 

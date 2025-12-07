@@ -9,14 +9,14 @@ from models.components import FC
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils_protocbm.mappings import NUM_ATTRIBUTES
+from cub.config import N_ATTRIBUTES_CBM
 
 
 class ProtoMod(nn.Module):
     def __init__(self, channel_dim: int = 2048, num_vectors: int = 1):
         super(ProtoMod, self).__init__()
 
-        prototype_shape = [NUM_ATTRIBUTES * num_vectors, channel_dim, 1, 1]
+        prototype_shape = [N_ATTRIBUTES_CBM * num_vectors, channel_dim, 1, 1]
         self.prototype_vectors = nn.Parameter(
             2e-4 * torch.rand(prototype_shape), requires_grad=True
         )
@@ -33,7 +33,7 @@ class ProtoMod(nn.Module):
         ).view(batch_size, -1)
 
         similarity_score = similarity_score.reshape(
-            batch_size, NUM_ATTRIBUTES, -1
+            batch_size, N_ATTRIBUTES_CBM, -1
         )  # [batch_size, num_attributes, num_vectors]
 
         max_similarity_score = similarity_score.max(dim=2)[
@@ -52,7 +52,7 @@ class CBMMapper(nn.Module):
         super(CBMMapper, self).__init__()
 
         self.all_fc = nn.ModuleList()
-        for _ in range(NUM_ATTRIBUTES):
+        for _ in range(N_ATTRIBUTES_CBM):
             self.all_fc.append(FC(channel_dim, 1, expand_dim))
 
         self.is_aux = is_aux
