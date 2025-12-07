@@ -70,13 +70,13 @@ def epoch_wrapper(
         losses = []
 
         if model.training and args.use_aux:
-            outputs, similarity_scores, attention_maps, aux_outputs = model(inputs)
+            (outputs, similarity_scores, attention_maps), aux_outputs = model(inputs)
 
             classification_loss = cross_entropy(outputs, labels) + 0.4 * cross_entropy(
                 aux_outputs, labels
             )
         else:
-            outputs, similarity_scores, attention_maps = model(inputs)
+            (outputs, similarity_scores, attention_maps) = model(inputs)
 
             classification_loss = cross_entropy(outputs, labels)
 

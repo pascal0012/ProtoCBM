@@ -105,9 +105,8 @@ class ModelConnector(nn.Module):
             # Unpack main feature tuple, construct one tuple
             output, aux_output = self.backbone(x)
             
-            
             # old code  self.forward_stage2(outputs), self.forward_stage2(aux_outputs)
-            return *self.forward_fn(output), self.forward_fn(aux_output, aux_forward=True)
+            return self.forward_fn(output), self.forward_fn(aux_output, aux_forward=True)
 
         if self.backbone is not None:
             x = self.backbone(x)
