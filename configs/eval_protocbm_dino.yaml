@@ -1,0 +1,25 @@
+mode: XCY   # XY and XC and CY
+n_attributes: 112
+
+model_name: protocbm
+concept_mapper: protomod
+concept_activation: none    # "relu" or "sigmoid"
+
+saliency_method: attention
+IoU_threshold: 0.5
+
+log_dir: outputs/ProtoCBM_DINO_UNFREEZE_AUXLOGITS_HIGHERWEIGHTS2
+data_dir: data/CUB_200_2011
+split_dir: data/CUB_processed/class_attr_data_10/test.pkl
+vis_every_n: 4
+seed: 1
+
+batch_size: 64
+use_aux: false
+
+backbone: dino_vitb16
+backbone_pretrained: true
+backbone_freeze: false
+expand_dim: 0
+
+proto_n_vectors: 1
