@@ -167,9 +167,12 @@ def tensor_to_pil(img_tensor):
 
 def visualise_localization_acc_boxes(
     imgs,
+    img_paths,
+    part_gts,
     saliency_maps,
     predicted_bounding_boxes,
     gt_part_boxes,
+    scores,
     batch_nr,
     batch_ious,
     part_names,
@@ -202,10 +205,13 @@ def visualise_localization_acc_boxes(
 
 
     img = imgs[batch_idx]
+    img_path = img_paths[batch_idx]
     masks = saliency_maps[batch_idx]
     predicted_bounding_boxes = predicted_bounding_boxes[batch_idx]
     gt_part_boxes = gt_part_boxes[batch_idx]
     ious = batch_ious[batch_idx]
+    scores = scores[batch_idx]
+    gts = part_gts[batch_idx]
 
     # Denorm image
     img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
@@ -217,11 +223,15 @@ def visualise_localization_acc_boxes(
     for col in range(n_parts):
         iou = ious[col].item()
         # Part name
-        axes[0, col].set_title("{}: IoU {}".format(part_names[col], round(iou, 4)), fontsize=10, pad=4)
+        axes[0, col].set_title("{}: IoU {}, score {}".format(part_names[col], round(iou, 4), round(scores[col].item(), 3)), fontsize=10, pad=4)
 
         # Image with BB
         axes[0, col].imshow(img_np)
         axes[0, col].axis('off')
+
+        gt = gts[col].cpu().detach().numpy()
+        #if gt.sum() != 0:
+        axes[0, col].scatter(gt[0], gt[1], s=1, c="red")
 
         gt_box = gt_part_boxes[col].cpu().detach().numpy()
         x1, y1, x2, y2 = gt_box
@@ -229,7 +239,7 @@ def visualise_localization_acc_boxes(
         height = y2 - y1
 
         rect = patches.Rectangle(
-            (x1, y1),     # Bottom-left corner
+            (x1, y1),    
             width,
             height,
             linewidth=2,
@@ -250,7 +260,7 @@ def visualise_localization_acc_boxes(
         height = y2 - y1
 
         rect = patches.Rectangle(
-            (x1, y1),     # Bottom-left corner
+            (x1, y1),    
             width,
             height,
             linewidth=2,
@@ -263,9 +273,11 @@ def visualise_localization_acc_boxes(
     axes[0, 0].set_ylabel("Image with GT BB")
     axes[1, 0].set_ylabel("Attention with Pred BB")
 
+    img_name = "_".join(img_path.split(os.sep)[-2:]).rstrip(".jpg")
+
     # Create string for this img
     plt.tight_layout()
-    plt.savefig(os.path.join(save_path, f"b{batch_nr}_id{batch_idx}_part_viz.png"), dpi=200, bbox_inches='tight')
+    plt.savefig(os.path.join(save_path, f"b{batch_nr}_id{batch_idx}_part_viz_{img_name}.png"), dpi=200, bbox_inches='tight')
     plt.close()
 
 

@@ -143,7 +143,7 @@ class CUBLocalizationDataset(Dataset):
         img_source_path = os.path.join(self.image_dir , "/".join(path_parts[cub_index+1:]))
         img = Image.open(img_source_path).convert('RGB')
 
-        og_img_w, og_img_h = img.size
+        og_img_w, og_img_h = img.width, img.height
 
         if self.transform:
             img = self.transform(img)
@@ -154,26 +154,37 @@ class CUBLocalizationDataset(Dataset):
 
         # Get localization data, i.e. part segmentation masks and bounding box data
         part_seg_masks = self._get_part_seg_masks(img_path, class_label)
-        part_bbs = self._get_bounding_box_data(img_source_path, (og_img_w, og_img_h))
+        part_bbs, part_gts = self._get_bounding_box_data(img_source_path, (og_img_w, og_img_h))
 
         #uncomment this for resize adjustment
         if self.resize_size != None:
             #adjust boxes to resizing
-            part_bbs = self.resize_bounding_boxes(part_bbs, [og_img_w, og_img_h], self.resize_size if isinstance(self.resize_size, list) else [self.resize_size, self.resize_size])
-            og_img_w, og_img_h = self.resize_size if isinstance(self.resize_size, list) else [self.resize_size, self.resize_size]
+            new_size = None
+            if isinstance(self.resize_size, int):
+                smaller_side = float(min(og_img_w, og_img_h))
+                ratio = float(self.resize_size) / smaller_side
+                new_size = [int(og_img_w * ratio), int(og_img_h * ratio)]
+            else:
+                new_size = self.resize_size
+            part_bbs = self.resize_bounding_boxes(part_bbs, [og_img_w, og_img_h], new_size)
+            part_gts = self.resize_gts(part_gts, [og_img_w, og_img_h], new_size)
+
+            og_img_w, og_img_h = new_size
 
         if self.center_crop_size != None:
             #we have center crop adjust bounding boxes
             part_bbs = self._adjust_to_center_crop(part_bbs, og_img_w, og_img_h, self.center_crop_size)
-        
-        return img, class_label, attr_label, part_seg_masks, part_bbs
+            part_gts = self._adjust_gt_to_center_crop(part_gts, og_img_w, og_img_h, self.center_crop_size)
+
+
+        return img, class_label, attr_label, part_seg_masks, part_bbs, img_source_path, part_gts
 
     def resize_bounding_boxes(self, box_tensor, og_size, new_size):
         #adjusts the BBs to resize transform
         # og_size, new_size -> W, H
 
-        scale_x = new_size[0] / og_size[0]
-        scale_y = new_size[1] / og_size[1]
+        scale_x = float(new_size[0]) / float(og_size[0])
+        scale_y = float(new_size[1]) / float(og_size[1])
 
         boxes = box_tensor.clone().float()
 
@@ -183,7 +194,54 @@ class CUBLocalizationDataset(Dataset):
         boxes[:, 1] *= scale_y  # y1
         boxes[:, 3] *= scale_y  # y2
 
-        return boxes.round().short()
+        return boxes.round().long()
+
+    def resize_gts(self, box_tensor, og_size, new_size):
+        #adjusts the BBs to resize transform
+        # og_size, new_size -> W, H
+
+        scale_x = float(new_size[0]) / float(og_size[0])
+        scale_y = float(new_size[1]) / float(og_size[1])
+
+
+        boxes = box_tensor.clone().float()
+
+        # apply scaling only to non-zero boxes
+        boxes[:, 0] *= scale_x  # x1
+        boxes[:, 1] *= scale_y  # x2
+
+        return boxes.round().long()
+
+    def _adjust_gt_to_center_crop(self, bounding_boxes, og_w, og_h, crop_size):
+        #adjusts bounding box coords to acknowledge center crop transformation
+        #bounding boxes is the [K, 4] tensor that comes from the bounding box creation in get_item
+        
+        left = (og_w - crop_size[0]) / 2
+        top  = (og_h - crop_size[1]) / 2
+
+        bounding_boxes = bounding_boxes.float()
+
+        orig_center_x = bounding_boxes[:, 0]
+        orig_center_y = bounding_boxes[:, 1]
+
+        visible_mask = (
+            (orig_center_x >= left) & (orig_center_x <= left + crop_size[0]) &
+            (orig_center_y >= top)  & (orig_center_y <= top + crop_size[1])
+        )
+
+        # Shift all boxes in place
+        bounding_boxes[:, 0].sub_(left)  # xmin
+        bounding_boxes[:, 1].sub_(top)   # ymin
+
+        # Clip in place
+        bounding_boxes[:, 0].clamp_(0, crop_size[0])
+        bounding_boxes[:, 1].clamp_(0, crop_size[1])
+
+        bounding_boxes[~visible_mask] = 0
+
+        bounding_boxes = bounding_boxes.round().long()
+
+        return bounding_boxes
 
 
     def _adjust_to_center_crop(self, bounding_boxes, og_w, og_h, crop_size):
@@ -192,6 +250,7 @@ class CUBLocalizationDataset(Dataset):
         
         left = (og_w - crop_size[0]) / 2
         top  = (og_h - crop_size[1]) / 2
+
 
         bounding_boxes = bounding_boxes.float()
 
@@ -217,7 +276,7 @@ class CUBLocalizationDataset(Dataset):
 
         bounding_boxes[~visible_mask] = 0
 
-        bounding_boxes = bounding_boxes.round().short()
+        bounding_boxes = bounding_boxes.round().long()
 
         return bounding_boxes
     
@@ -281,7 +340,9 @@ class CUBLocalizationDataset(Dataset):
         bird_bb = self.imgID_to_birdBB[img_id]
 
         # For each part get the gt bounding box, stack to one tensor
-        return torch.stack(self._get_BB_per_part(bird_bb, part_infos, img_size), dim=0) # [K, 4]
+        partbbs, gts = self._get_BB_per_part(bird_bb, part_infos, img_size)
+        
+        return torch.stack(partbbs, dim=0), torch.stack(gts, dim=0) # [K, 4], [K, 2]
     
     def _get_BB_per_part(self, bird_bb, part_infos, img_size, scale=4):
         # Generate a bounding box mask per part, empty if part is not visible
@@ -293,17 +354,20 @@ class CUBLocalizationDataset(Dataset):
         mask_h = height / scale
 
         part_masks = []
+        gts = []
         for info in part_infos:
             #info: part_id, x1, y1, visible
             if info[-1] == 0.0: #part not visible, no gt
                 part_masks.append(torch.zeros(4, dtype=torch.int16)) # Must fill with dummy values for batching
+                gts.append(torch.zeros(2))
                 continue
-            gt = (info[1], info[2])
+            gt = [info[1], info[2]]
+            gts.append(torch.tensor(gt, dtype=torch.int16))
             #change from x, y, w, h to x1, y1, x2, y2
             transformed_bird_BB = [bird_bb[0], bird_bb[1], bird_bb[0] + bird_bb[2], bird_bb[1] + bird_bb[3]]
             part_masks.append(torch.tensor(self.get_KP_BB(gt, mask_h, mask_w, transformed_bird_BB, img_size), dtype=torch.int16))
         
-        return part_masks
+        return part_masks, gts
 
     def get_KP_BB(self, gt_point, mask_h, mask_w, bird_BB, img_size, KNOW_BIRD_BB=False):
         KP_best_x, KP_best_y = gt_point[0], gt_point[1]
