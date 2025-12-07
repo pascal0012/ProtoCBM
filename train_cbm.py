@@ -432,38 +432,36 @@ def train(model: nn.Module, args: Namespace) -> float:
 
         print(train_acc_meter.avg)
 
-        if args.bottleneck:
-            train_acc_str = (
+        train_acc_list = []
+        val_acc_list = []
+        if args.mode != "XC":
+            train_acc_list.append(
                 Colors.GREEN
-                + f"Train/attr_acc: {train_attr_acc_meter.avg.item():.4f}"
-                + Colors.ENDC
-            )
-        else:
-            train_acc_str = " - ".join(
-                [
-                    Colors.GREEN
                     + f"Train/acc: {train_acc_meter.avg.item():.4f}"
                     + Colors.ENDC,
-                    Colors.GREEN
-                    + f"Train/attr_acc: {train_attr_acc_meter.avg.item():.4f}"
-                    + Colors.ENDC,
-                ]
             )
 
-        if args.bottleneck:
-            val_acc_str = (
+            val_acc_list.append(
                 Colors.GREEN
                 + f"Val/attr_acc: {val_attr_acc_meter.avg.item():.4f}"
                 + Colors.ENDC
             )
 
-        else:
-            val_acc_str = " - ".join([
-                Colors.GREEN + f"Val/acc: {val_acc_meter.avg.item():.4f}" + Colors.ENDC,
+        if args.mode not in ["XY", "CY"]:
+            train_acc_list.append(
                 Colors.GREEN
-                + f"Val/attr_acc: {val_attr_acc_meter.avg.item():.4f}"
-                + Colors.ENDC,
-            ])
+                    + f"Train/acc: {train_acc_meter.avg.item():.4f}"
+                    + Colors.ENDC,
+            )
+            val_acc_list.append(
+                Colors.GREEN
+                    + f"Val/acc: {val_acc_meter.avg.item():.4f}"
+                    + Colors.ENDC,
+            )
+
+        train_acc_str = " - ".join(train_acc_list)
+        val_acc_str = " - ".join(val_acc_list)
+
 
         time_duration = time.time() - start_time
         logger.write(
@@ -471,11 +469,13 @@ def train(model: nn.Module, args: Namespace) -> float:
                 [
                     datetime.now().strftime("%H:%M:%S"),
                     f"Epoch [{epoch}]",
+                    "\n",
                     train_loss_string,
                     train_acc_str,
                     "\n",
                     val_loss_string,
                     val_acc_str,
+                    "\n",
                     f"Best val epoch: {best_val_epoch}",
                     f"Time: {time_duration:.2f} sec",
                 ]
