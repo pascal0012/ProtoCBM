@@ -11,7 +11,7 @@ def objective(args: Namespace, trial: optuna.Trial):
     args = Namespace(**vars(args))
 
     # Avoid console issues
-    args.write_console = True
+    args.write_console = False
 
     # Update log dir to avoid overwriting
     args.log_dir = f"outputs/hyperparameter/CBM/run_{trial.number}"
