@@ -29,15 +29,25 @@ from utils_protocbm.train_utils import (
     AverageMeter,
     LossMeter,
     accuracy,
-    compute_attr_accuracy,
     build_attr_criterion,
     compute_accuracies,
+    compute_attr_accuracy,
     logger_and_summarywriter,
     model_by_mode,
     normalize_scientific_floats,
     optimizer_and_scheduler_by_name,
     prepare_model,
 )
+
+
+def is_wandb_available():
+    """Check if wandb is installed and can be imported."""
+    try:
+        import wandb
+
+        return True
+    except ImportError:
+        return False
 
 
 def compute_auxiliary_losses(
@@ -53,7 +63,8 @@ def compute_auxiliary_losses(
     losses = []
     out_start = 0
 
-    if not args.bottleneck:
+    if args.mode in ["XY", "XCY"]:
+        # call this when XY or XCY
         loss_class = 1.0 * cross_entropy(outputs[0], labels) + 0.4 * cross_entropy(
             aux_outputs[0], labels
         )
@@ -85,7 +96,7 @@ def compute_standard_losses(
     losses = []
     out_start = 0
 
-    if not args.bottleneck:
+    if args.mode in ["XY", "XCY"]:
         losses.append(criterion(outputs[0], labels))
         out_start = 1
 
@@ -171,7 +182,7 @@ def run_epoch(
     For the rest of the networks (X -> A, cotraining, simple finetune)
     """
     loss_labels = []
-    if args.bottleneck:
+    if args.mode == "XC":
         loss_labels = ["attr_loss"]
     else:
         if attr_criterion is not None:
@@ -195,6 +206,7 @@ def run_epoch(
         dataloader,
         desc=f"{'Train' if is_training else 'Val'} Epoch {epoch}",
         leave=False,
+        mininterval=1.0,  # Update at most once per second
     ):
         inputs, labels, attr_labels = batch
 
@@ -230,19 +242,12 @@ def run_epoch(
             softmax_outputs = torch.nn.Softmax(dim=1)(outputs[0])
             class_acc = accuracy(softmax_outputs, labels, topk=(1,))
             class_acc_meter.update(class_acc[0], softmax_outputs.size(0))
-            if is_training:
-                tb_writer.add_scalar(
-                    "Class Accuracy/train", class_acc_meter.avg.item(), epoch
-                )
-            else:
-                tb_writer.add_scalar(
-                    "Class Accuracy/val", class_acc_meter.avg.item(), epoch
-                )
 
+        ## Accuracy calculation
         # Compute attribute accuracy (bottleneck always, otherwise when using images)
-        if args.bottleneck or not args.no_img:
+        if args.mode not in ["XY", "CY"]:
             pred_attr = outputs
-            if not args.bottleneck:
+            if args.mode != "XC":
                 pred_attr = pred_attr[1:]
 
             # list of [N_ATTR, batch_size] tensors -> (B, N)
@@ -251,14 +256,6 @@ def run_epoch(
                 reshaped_preds, attr_labels_var
             )
             attr_acc_meter.update(attr_acc, batch_size)
-            if is_training:
-                tb_writer.add_scalar(
-                    "Attribute Accuracy/train", attr_acc_meter.avg.item(), epoch
-                )
-            else:
-                tb_writer.add_scalar(
-                    "Attribute Accuracy/val", attr_acc_meter.avg.item(), epoch
-                )
 
         total_loss = None
         if attr_criterion is not None:
@@ -285,6 +282,17 @@ def run_epoch(
             optimizer.zero_grad()
             back_loss.backward()
             optimizer.step()
+
+    train_mode = "train" if is_training else "val"
+    if args.mode != "XC":
+        tb_writer.add_scalar(
+            f"Class Accuracy/{train_mode}", class_acc_meter.avg.item(), epoch
+        )
+
+    if args.mode not in ["XY", "CY"]:
+        tb_writer.add_scalar(
+            f"Attribute Accuracy/{train_mode}", attr_acc_meter.avg.item(), epoch
+        )
 
     return loss_meter, class_acc_meter, attr_acc_meter
 
@@ -394,87 +402,57 @@ def train(model: nn.Module, args: Namespace) -> float:
                     tb_writer=tb_writer,
                 )
 
-        
-        if (
-            (best_val_acc < val_acc_meter.avg and not args.bottleneck) or 
-            (best_val_acc < val_attr_acc_meter.avg and args.bottleneck)
+        if (best_val_acc < val_acc_meter.avg and not args.bottleneck) or (
+            best_val_acc < val_attr_acc_meter.avg and args.bottleneck
         ):
             best_val_epoch = epoch
-            best_val_acc = val_attr_acc_meter.avg if args.bottleneck else val_acc_meter.avg 
+            best_val_acc = (
+                val_attr_acc_meter.avg if args.bottleneck else val_acc_meter.avg
+            )
 
             logger.write("New model best model at epoch %d\n" % epoch)
             torch.save(
-                model.state_dict(), os.path.join(args.log_dir, "best_model_%d.pth" % args.seed)
+                model.state_dict(),
+                os.path.join(args.log_dir, "best_model_%d.pth" % args.seed),
             )
 
         train_loss_avg = train_loss_meter.avg
         val_loss_avg = val_loss_meter.avg
 
-        if isinstance(train_loss_avg, np.ndarray):
-            train_loss_string = " - ".join(
-                [
-                    Colors.MAGENTA + f"(T){key}/loss: {value:.4f}" + Colors.ENDC
-                    for (key, value) in zip(loss_labels, train_loss_avg)
-                ]
-            )
-        else:
-            train_loss_string = f"Train/loss: {train_loss_avg:.4f}"
+        log_dict = {}
 
-        if isinstance(val_loss_avg, np.ndarray):
-            val_loss_string = " - ".join(
-                [
-                    Colors.MAGENTA + f"(V){key}/loss: {value:.4f}" + Colors.ENDC
-                    for (key, value) in zip(loss_labels, val_loss_avg)
-                ]
-            )
-        else:
-            val_loss_string = f"Val/loss: {val_loss_avg:.4f}"
+        for key, value in zip(loss_labels, train_loss_avg):
+            log_dict["Train/" + key] = value
 
-        print(train_acc_meter.avg)
+        for key, value in zip(loss_labels, val_loss_avg):
+            log_dict["Val/" + key] = value
 
-        train_acc_list = []
-        val_acc_list = []
+        # Except XC always log class accuracy
         if args.mode != "XC":
-            train_acc_list.append(
-                Colors.GREEN
-                    + f"Train/acc: {train_acc_meter.avg.item():.4f}"
-                    + Colors.ENDC,
-            )
+            log_dict["Train/class_acc"] = f"{train_acc_meter.avg.item():.4f}"
+            log_dict["Val/class_acc"] = f"{val_acc_meter.avg.item():.4f}"
 
-            val_acc_list.append(
-                Colors.GREEN
-                + f"Val/attr_acc: {val_attr_acc_meter.avg.item():.4f}"
-                + Colors.ENDC
-            )
-
+        # do not log attribute accuracy
         if args.mode not in ["XY", "CY"]:
-            train_acc_list.append(
-                Colors.GREEN
-                    + f"Train/acc: {train_acc_meter.avg.item():.4f}"
-                    + Colors.ENDC,
-            )
-            val_acc_list.append(
-                Colors.GREEN
-                    + f"Val/acc: {val_acc_meter.avg.item():.4f}"
-                    + Colors.ENDC,
+            log_dict["Train/attr_acc"] = f"{train_attr_acc_meter.avg.item():.4f}"
+            log_dict["Val/attr_acc"] = f"{val_attr_acc_meter.avg.item():.4f}"
+
+        if args.use_wandb:
+            wandb.log(
+                {
+                    **log_dict,
+                    "epoch": epoch,
+                }
             )
 
-        train_acc_str = " - ".join(train_acc_list)
-        val_acc_str = " - ".join(val_acc_list)
-
+        log_str = " - ".join([f"{key}: {value}" for key, value in log_dict.items()])
 
         time_duration = time.time() - start_time
         logger.write(
             " - ".join(
                 [
                     datetime.now().strftime("%H:%M:%S"),
-                    f"Epoch [{epoch}]",
-                    "\n",
-                    train_loss_string,
-                    train_acc_str,
-                    "\n",
-                    val_loss_string,
-                    val_acc_str,
+                    log_str,
                     "\n",
                     f"Best val epoch: {best_val_epoch}",
                     f"Time: {time_duration:.2f} sec",
@@ -498,6 +476,10 @@ def train(model: nn.Module, args: Namespace) -> float:
             print("Early stopping because acc hasn't improved for a long time")
             break
 
+    # At the end of training:
+    if args.use_wandb:
+        wandb.finish()
+
     return best_val_acc
 
 
@@ -517,6 +499,22 @@ if __name__ == "__main__":
     args = normalize_scientific_floats(args)
 
     args = argparse.Namespace(**args, config_path=cli_args.config)
+
+    # Initialize wandb if requested in config and available
+    use_wandb = getattr(args, "use_wandb", False)
+    if use_wandb:
+        if is_wandb_available():
+            import wandb
+
+            wandb.init(
+                project=getattr(args, "wandb_project", "proto-CBM"),
+                name=getattr(args, "wandb_run_name", None),
+                config=vars(args),
+            )
+            print("Weights & Biases logging enabled")
+        else:
+            print("Warning: wandb requested but not installed. Skipping wandb logging.")
+            args.use_wandb = False
 
     print("creating model...")
     model = model_by_mode(args)
