@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 from captum.attr import LayerAttribution, LayerGradCam
 
-from tqdm import tqdm
 from saliency.utils import find_fist_conv
 
 
@@ -39,8 +38,8 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
             
             wrapped_model = WrapperProtoCBM(model)
 
-            attribute_maps = torch.ones((args.batch_size, args.n_attributes, 8, 8))
-            for target in tqdm(range(args.n_attributes), desc="Calculating CAMs"):
+            attribute_maps = torch.ones((inputs.shape[0], args.n_attributes, 8, 8))
+            for target in range(args.n_attributes):
                 current_cam = calculate_cam(wrapped_model, inputs, target=target)
                 attribute_maps[:, target] = current_cam[:, 0, :, :]
 
@@ -53,8 +52,8 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
             attributes = torch.stack(attributes, dim=1).detach().squeeze(-1)
 
             # iterate over the attributes and calculate CAMs
-            attribute_maps = torch.ones((args.batch_size, args.n_attributes, 8, 8))
-            for target in tqdm(range(args.n_attributes), desc="Calculating CAMs"):
+            attribute_maps = torch.ones((inputs.shape[0], args.n_attributes, 8, 8))
+            for target in range(args.n_attributes):
                 wrapped_model = WrapperCUB(model, out_index=target)
                 current_cam = calculate_cam(wrapped_model, inputs, target=0)
                 attribute_maps[:, target] = current_cam[:, 0, :, :]

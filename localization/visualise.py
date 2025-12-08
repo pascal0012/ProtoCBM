@@ -337,6 +337,11 @@ def visualise_part_segmentations(
     if source_paths is not None:
         img_name = source_paths[batch_idx]
         img_name = "_".join(img_name.split(os.sep)[-2:]).rstrip(".jpg")
+
+        # Only have part segmentations for first 70 classes, so no need to plot for other classes
+        class_id = int(img_name[:3])
+        if class_id > 70:
+            return
     else:
         img_name = f"id{batch_idx}"
 
