@@ -24,7 +24,7 @@ class CUBDataset(Dataset):
 
     def __init__(self, 
         pkl_file_paths: list[str], 
-        no_img: bool,  #! -> wollen wir das direkt auf mode mappen? 
+        no_img: bool,
         image_dir: str, 
         transform=None
     ):
