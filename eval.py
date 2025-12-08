@@ -40,11 +40,11 @@ def eval(args):
     """
 
     # Create the model and load weights
-    with Timer("Creating and preparing model"):
-        model = create_model(args)
-        model, device = prepare_model(model, args, load_weights=True)
-        model.eval()
+    model = create_model(args)
+    model, device = prepare_model(model, args, load_weights=True)
+    model.eval()
 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     transform, mask_transform, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
 
     # Data management
@@ -86,8 +86,7 @@ def eval(args):
     acc_count = 0
 
     with torch.no_grad():
-        for data_idx, data in enumerate(tqdm(loader, desc="Evaluating batches")):
-
+        for data_idx, data in enumerate(tqdm(loader, desc="Evaluating batches:")):
             # Cast data to device
             data = [v.to(device) if torch.is_tensor(v) else v for v in data]
 

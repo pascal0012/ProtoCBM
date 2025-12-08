@@ -1,6 +1,7 @@
 .vscode
 __pycache__/
 data/
+data/*
 output/
 outputs/
 outputs/*
@@ -11,3 +12,6 @@ logs/
 pyproject.toml
 .python-version
 uv.lock
+.env
+wandb/*
+wandb
