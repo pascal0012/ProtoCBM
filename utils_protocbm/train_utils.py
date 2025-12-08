@@ -32,6 +32,10 @@ def prepare_model(
         )
         state_dict = torch.load(path_to_weights)
 
+        # Compatibilty with prior runs that saved the model fully and not only the state dict
+        if hasattr(state_dict, 'state_dict'):
+            state_dict = state_dict.state_dict()
+
         # Remove auxiliary logits and concept mapper, as it is not needed for inference
         if not args.model_name == "apn" and not training:
             print(

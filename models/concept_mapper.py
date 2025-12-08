@@ -20,7 +20,7 @@ class ProtoMod(nn.Module):
         self.prototype_vectors = nn.Parameter(
             2e-4 * torch.rand(prototype_shape), requires_grad=True
         )
-        self.softmax = nn.Softmax(dim=1)
+        self.num_vectors = num_vectors
 
     def forward(self, x):
         batch_size = x.shape[0]
@@ -36,11 +36,14 @@ class ProtoMod(nn.Module):
             batch_size, N_ATTRIBUTES_CBM, -1
         )  # [batch_size, num_attributes, num_vectors]
 
-        max_similarity_score = similarity_score.max(dim=2)[
-            0
-        ]  # [batch_size, num_attributes]
+        # Gets max scores and indices as tuple
+        max_similarity_score, max_indices = similarity_score.max(dim=2)
 
-        return max_similarity_score, attention_map
+        # For each attribute, get the attention map of that prototype vector that had the maximum activation
+        attr_offsets = torch.arange(N_ATTRIBUTES_CBM, device=x.device).view(1, -1) * self.num_vectors
+        channel_indices = max_indices + attr_offsets
+        attention_map_max = attention_map[torch.arange(batch_size).unsqueeze(1), channel_indices]  # [batch_size, num_attributes, H, W]
+        return max_similarity_score, attention_map_max
 
 
 class CBMMapper(nn.Module):
