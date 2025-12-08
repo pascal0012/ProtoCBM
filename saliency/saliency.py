@@ -36,22 +36,31 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
             from saliency.wrapper import WrapperProtoCBM
             wrapped_model = WrapperProtoCBM(model)
 
+            attribute_maps = torch.ones((args.batch_size, args.n_attributes, 8, 8))
+            for target in tqdm(range(args.n_attributes), desc="Calculating CAMs"):
+                current_cam = calculate_cam(wrapped_model, inputs, target=target)
+                attribute_maps[:, target] = current_cam[:, 0, :, :]
+
+            return preds, similarity_scores, attribute_maps
+
         elif args.model_name == "cbm":
             from saliency.wrapper import WrapperCUB
-            wrapped_model = WrapperCUB(model)
+
+            # iterate over the attributes and calculate CAMs
+            attribute_maps = torch.ones((args.batch_size, args.n_attributes, 8, 8))
+            for target in tqdm(range(args.n_attributes), desc="Calculating CAMs"):
+                wrapped_model = WrapperCUB(model, out_index=target)
+                current_cam = calculate_cam(wrapped_model, inputs, target=0)
+                attribute_maps[:, target] = current_cam[:, 0, :, :]
+
+            return preds, similarity_scores, attribute_maps
 
         else:
             raise ValueError(
                 f"CAM saliency method is only supported for protocbm model, got {args.model_name}!"
             )
         
-        # iterate over the attributes and calculate CAMs
-        attribute_maps = torch.ones((args.batch_size, args.n_attributes, 8, 8))
-        for target in tqdm(range(args.n_attributes), desc="Calculating CAMs"):
-            current_cam = calculate_cam(wrapped_model, inputs, target=target)
-            attribute_maps[:, target] = current_cam[:, 0, :, :]
-
-        return preds, similarity_scores, attribute_maps
+        
 
     raise ValueError(f"Got invalid saliency method {args.saliency_method}")
 
