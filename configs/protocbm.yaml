@@ -5,7 +5,10 @@ model_name: protocbm
 concept_mapper: protomod
 concept_activation: none    # "relu" or "sigmoid"
 
-log_dir: outputs/ProtoCBM_newweights
+saliency_method: attention
+IoU_threshold: 0.5
+
+log_dir: outputs/ProtoCBM_IntegrateIoU2
 image_dir: data/CUB_200_2011/images
 data_dir: data/CUB_processed/class_attr_data_10
 checkpoint: ""

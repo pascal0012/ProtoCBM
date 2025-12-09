@@ -8,8 +8,9 @@ import numpy as np
 import torch
 from torch import nn
 
-from cub.config import LR_DECAY_SIZE, MIN_LR
+from cub.config import LR_DECAY_SIZE, MIN_LR, BASE_DIR
 from cub.dataset import load_data
+from localization.part_seg_iou import create_mapping_attributes_to_part_seg_group
 from losses import ProtoModLoss
 from utils_protocbm.train_utils import (
     compute_accuracies,
@@ -22,6 +23,8 @@ from utils_protocbm.train_utils import (
     AverageMeter,
     LossMeter,
 )
+from utils_protocbm.eval_utils import eval_part_segmentation_iou, get_localization_loader
+
 
 # TODO
 loss_labels = [
@@ -127,7 +130,7 @@ def epoch_wrapper(
 
 
 def train(model: nn.Module, args: Namespace) -> float:
-    model, _ = prepare_model(model, args)
+    model, device = prepare_model(model, args)
 
     logger, tb_writer = logger_and_summarywriter(args)
 
@@ -191,24 +194,22 @@ def train(model: nn.Module, args: Namespace) -> float:
                 os.path.join(args.log_dir, f"best_model_{args.seed}.pth"),
             )
 
-        logger.write(
-            " - ".join(
-                [
-                    datetime.now().strftime("%H:%M:%S"),
-                    f"Epoch [{epoch}]",
-                    f"Train/loss: {[f'{type}: {loss:.4f}' for type, loss in zip(loss_labels, train_loss_meter.avg)]}",
-                    f"Train/Class acc: {train_class_acc_meter.avg.item():.4f}",
-                    f"Train/Attr acc: {train_attr_acc_meter.avg.item():.4f}",
-                    f"Val/loss: {[f'{type}: {loss:.4f}' for type, loss in zip(loss_labels, val_loss_meter.avg)]}",
-                    f"Val/Class acc: {val_class_acc_meter.avg.item():.4f}",
-                    f"Val/Attr acc: {val_attr_acc_meter.avg.item():.4f}",
-                    f"Best val epoch: {best_val_epoch}",
-                    f"Time: {time.time() - start_time:.2f} sec",
-                    f"LR: {scheduler.get_lr()[0]:.6f}",
-                ]
-            )
-        )
-
+        logger_lst = [
+            datetime.now().strftime("%H:%M:%S"),
+            f"Epoch [{epoch}]",
+            f"Train/loss: {[f'{type}: {loss:.4f}' for type, loss in zip(loss_labels, train_loss_meter.avg)]}",
+            f"Train/Class acc: {train_class_acc_meter.avg.item():.4f}",
+            f"Train/Attr acc: {train_attr_acc_meter.avg.item():.4f}",
+            f"Val/loss: {[f'{type}: {loss:.4f}' for type, loss in zip(loss_labels, val_loss_meter.avg)]}",
+            f"Val/Class acc: {val_class_acc_meter.avg.item():.4f}",
+            f"Val/Attr acc: {val_attr_acc_meter.avg.item():.4f}",
+            f"Best val epoch: {best_val_epoch}",
+            f"Time: {time.time() - start_time:.2f} sec",
+            f"LR: {scheduler.get_lr()[0]:.6f}",
+        ]
+        # if args.compute_localization:
+        #    logger_lst.append(f"Val/PartSegLocalizationIoU: {part_seg_iou}")
+        logger.write(" - ".join(logger_lst))
         logger.flush()
 
         if epoch <= scheduler_stop_epoch:
@@ -223,7 +224,22 @@ def train(model: nn.Module, args: Namespace) -> float:
 
     logger.close()
 
-    return val_metric
+    # Compute the part segmentation IoU, globally across all groups / attributes.
+    # TODO: Make data dirs uniform across all datasets / configs, hacky fix here
+    tmp_data_dir = os.path.join(BASE_DIR, "/".join(args.image_dir.split("/")[:-1]))
+    tmp_split_dir = os.path.join(BASE_DIR, args.data_dir, "val.pkl")
+
+    # Get necessary data for localization, see eval.py or documentation for details
+    loader, _, _, _ = get_localization_loader(model, tmp_data_dir, tmp_split_dir, args)
+    map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = create_mapping_attributes_to_part_seg_group(
+        tmp_data_dir,
+        device,
+        only_cbm_attributes=True
+    )
+
+    # Compute part segmentation IoU
+    part_seg_iou = eval_part_segmentation_iou(model, loader, attribute_names, map_attr_id_to_part_seg_group, unmatched_attr_mask, args)
+    return val_metric, part_seg_iou
 
 
 if __name__ == "__main__":

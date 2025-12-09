@@ -30,19 +30,22 @@ def objective(args: Namespace, trial: optuna.Trial):
     args.loss_weight_attribute_reg = trial.suggest_float( # type: ignore
         "loss_weight_attribute_reg", 1e-6, 1, log=True
     )  
-    args.loss_weight_map_compactness = trial.suggest_float("loss_weight_map_compactness", 1e-9, 1e-2, log=True) # type: ignore
-    args.loss_weight_attribute_decorrelation = trial.suggest_float("loss_weight_attribute_decorrelation", 1e-6, 1e-2) # type: ignore
+    args.loss_weight_map_compactness = trial.suggest_float("loss_weight_map_compactness", 1e-9, 1e-1, log=True) # type: ignore
+    args.loss_weight_attribute_decorrelation = trial.suggest_float("loss_weight_attribute_decorrelation", 1e-6, 1e-1) # type: ignore
 
     model = ModelXtoCtoY(args)
 
-    metric = train(model, args)
+    metric, part_seg_iou = train(model, args)
 
+    if args.use_localization.metric:
+        return part_seg_iou
     return metric
 
 
 if __name__ == "__main__":
     args = gather_args()
-    study = optuna.create_study(direction="minimize")
+    args.use_localization_metric = False
+    study = optuna.create_study(direction="maximize" if args.use_localization_metric else "minimize")
     study.optimize(lambda trial: objective(args, trial), n_trials=50)
 
     print("Best:", study.best_trial.params)

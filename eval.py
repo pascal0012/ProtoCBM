@@ -105,10 +105,6 @@ def eval(args):
             iou_sum_per_attr += spr
             iou_count_per_attr += cpr
 
-            #create_attribute_mosaic(inputs, saliency_maps, attribute_names, scores)
-            if data_idx > 12:
-                break
-
             # Visualise part segmentations with saliency
             if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
                 visualise_part_segmentations(
