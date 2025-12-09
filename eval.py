@@ -37,10 +37,9 @@ def eval(args):
     """
 
     # Create the model and load weights
-    with Timer("Creating and preparing model"):
-        model = create_model(args)
-        model, device = prepare_model(model, args, load_weights=True)
-        model.eval()
+    model = create_model(args)
+    model, device = prepare_model(model, args, load_weights=True)
+    model.eval()
 
     # Get the localization data loader and additional transform statistics
     loader, transform_mean, transform_std, img_size = get_localization_loader(model, args.data_dir, args.split_dir, args)
@@ -70,8 +69,7 @@ def eval(args):
     acc_count = 0
 
     with torch.no_grad():
-        for data_idx, data in enumerate(tqdm(loader, desc="Evaluating batches")):
-
+        for data_idx, data in enumerate(tqdm(loader, desc="Evaluating batches:")):
             # Cast data to device
             data = [v.to(device) if torch.is_tensor(v) else v for v in data]
 

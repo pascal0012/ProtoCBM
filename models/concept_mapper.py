@@ -64,10 +64,6 @@ class CBMMapper(nn.Module):
     def forward(self, x):
         """Given a feature map of shape [B, C, H , W], creates concepts from it."""
         # Adaptive average pooling
-        
-        #! Wir verwenden für aux und normal die selben operationen
-        #! also im originalcode gibt es kein dropout für aux
-
         # N x C x 1 x 1
         x = F.adaptive_avg_pool2d(x, (1, 1)) 
         if not self.is_aux:
