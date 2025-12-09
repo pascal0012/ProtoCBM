@@ -8,11 +8,17 @@ import numpy as np
 import torch
 from torch import nn
 
-from cub.config import LR_DECAY_SIZE, MIN_LR, BASE_DIR
+from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
 from localization.part_seg_iou import create_mapping_attributes_to_part_seg_group
 from losses import ProtoModLoss
+from utils_protocbm.eval_utils import (
+    eval_part_segmentation_iou,
+    get_localization_loader,
+)
 from utils_protocbm.train_utils import (
+    AverageMeter,
+    LossMeter,
     compute_accuracies,
     create_criterions,
     gather_args,
@@ -20,11 +26,7 @@ from utils_protocbm.train_utils import (
     model_by_mode,
     optimizer_and_scheduler_by_name,
     prepare_model,
-    AverageMeter,
-    LossMeter,
 )
-from utils_protocbm.eval_utils import eval_part_segmentation_iou, get_localization_loader
-
 
 # TODO
 loss_labels = [
@@ -75,19 +77,33 @@ def epoch_wrapper(
         if model.training and args.use_aux:
             (outputs, similarity_scores, attention_maps), aux_outputs = model(inputs)
 
-            classification_loss = cross_entropy(outputs, labels) + 0.4 * cross_entropy(
-                aux_outputs, labels
-            )
+            # For X->C we do not train a classifier
+            if model.classifier is None:
+                classification_loss = torch.tensor(-1.0, device=device)
+            else:
+                classification_loss = cross_entropy(
+                    outputs, labels
+                ) + 0.4 * cross_entropy(aux_outputs, labels)
         else:
             (outputs, similarity_scores, attention_maps) = model(inputs)
 
-            classification_loss = cross_entropy(outputs, labels)
+
+            if model.classifier is None:
+                classification_loss = torch.tensor(-1.0, device=device)
+            else:
+                classification_loss = cross_entropy(outputs, labels)
 
         losses.append(classification_loss)
 
-        loss, attribute_reg_loss, cpt_loss, decorrelation_loss = protomod_criterion(
-            similarity_scores, attention_maps, attr_labels
-        )
+        # Ignore protomod criterion if concepts were already provided
+        if args.mode != "CY":
+            loss, attribute_reg_loss, cpt_loss, decorrelation_loss = protomod_criterion(
+                similarity_scores, attention_maps, attr_labels
+            )
+        else:
+            attribute_reg_loss = torch.tensor(-1, device=device)
+            cpt_loss = torch.tensor(-1, device=device)
+            decorrelation_loss = torch.tensor(-1, device=device)
 
         losses.append(attribute_reg_loss)
         losses.append(cpt_loss)
@@ -126,7 +142,12 @@ def epoch_wrapper(
         )
 
     # Using a joint criterion
-    return loss_meter, class_acc_meter, attr_acc_meter, - attr_acc_meter.avg - class_acc_meter.avg
+    return (
+        loss_meter,
+        class_acc_meter,
+        attr_acc_meter,
+        -attr_acc_meter.avg - class_acc_meter.avg,
+    )
 
 
 def train(model: nn.Module, args: Namespace) -> float:
@@ -152,30 +173,34 @@ def train(model: nn.Module, args: Namespace) -> float:
         start_time = time.time()
 
         # ----- Training -----
-        train_loss_meter, train_class_acc_meter, train_attr_acc_meter, _ = epoch_wrapper(
-            model=model,
-            optimizer=optimizer,
-            dataloader=train_loader,
-            epoch=epoch,
-            is_training=True,
-            args=args,
-            tb_writer=tb_writer,
-            cross_entropy=cross_entropy,
-            protomod_criterion=protomod_criterion,
-        )
-
-        # ----- Validation -----
-        with torch.no_grad():
-            val_loss_meter, val_class_acc_meter, val_attr_acc_meter, val_metric = epoch_wrapper(
+        train_loss_meter, train_class_acc_meter, train_attr_acc_meter, _ = (
+            epoch_wrapper(
                 model=model,
                 optimizer=optimizer,
-                dataloader=val_loader,
+                dataloader=train_loader,
                 epoch=epoch,
-                is_training=False,
+                is_training=True,
                 args=args,
                 tb_writer=tb_writer,
                 cross_entropy=cross_entropy,
                 protomod_criterion=protomod_criterion,
+            )
+        )
+
+        # ----- Validation -----
+        with torch.no_grad():
+            val_loss_meter, val_class_acc_meter, val_attr_acc_meter, val_metric = (
+                epoch_wrapper(
+                    model=model,
+                    optimizer=optimizer,
+                    dataloader=val_loader,
+                    epoch=epoch,
+                    is_training=False,
+                    args=args,
+                    tb_writer=tb_writer,
+                    cross_entropy=cross_entropy,
+                    protomod_criterion=protomod_criterion,
+                )
             )
 
         # NOTE: We are minimizing val_metric (ACCURACY NEEDS TO BE INVERTED)
@@ -231,14 +256,21 @@ def train(model: nn.Module, args: Namespace) -> float:
 
     # Get necessary data for localization, see eval.py or documentation for details
     loader, _, _, _ = get_localization_loader(model, tmp_data_dir, tmp_split_dir, args)
-    map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = create_mapping_attributes_to_part_seg_group(
-        tmp_data_dir,
-        device,
-        only_cbm_attributes=True
+    map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = (
+        create_mapping_attributes_to_part_seg_group(
+            tmp_data_dir, device, only_cbm_attributes=True
+        )
     )
 
     # Compute part segmentation IoU
-    part_seg_iou = eval_part_segmentation_iou(model, loader, attribute_names, map_attr_id_to_part_seg_group, unmatched_attr_mask, args)
+    part_seg_iou = eval_part_segmentation_iou(
+        model,
+        loader,
+        attribute_names,
+        map_attr_id_to_part_seg_group,
+        unmatched_attr_mask,
+        args,
+    )
     return val_metric, part_seg_iou
 
 
@@ -246,5 +278,9 @@ if __name__ == "__main__":
     args = gather_args()
 
     model = model_by_mode(args)
+
+    if args.checkpoint != "":
+        model.load_state_dict(torch.load(args.checkpoint))
+        print("Continuing with checkpoint:", args.checkpoint)
 
     train(model, args)

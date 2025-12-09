@@ -22,6 +22,11 @@ class ProtoMod(nn.Module):
         )
         self.num_vectors = num_vectors
 
+        # For C->Y we do not optimize the concept mapper
+        if self.mode == "CY":
+            for _, param in self.named_parameters():
+                param.requires_grad = False
+
     def forward(self, x):
         batch_size = x.shape[0]
 

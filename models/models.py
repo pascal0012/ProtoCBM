@@ -1,6 +1,7 @@
 from argparse import Namespace
 
 from torch import nn
+import torch
 
 import os
 import sys
@@ -39,13 +40,21 @@ def ModelXtoC(args: Namespace):
 
 
 def ModelCtoY(args: Namespace):
+    # TODO: Load pretrained concept mapper here
     classifier = MLP(
         input_dim=args.n_attributes,
         num_classes=N_CLASSES,
         expand_dim=args.expand_dim,
     )
 
-    return classifier
+    return ModelConnector(
+        backbone,
+        concept_mapper,
+        classifier,
+        args.use_aux,
+        args.concept_activation,
+        concept_mapper_aux,
+    )
 
 
 def ModelXtoCtoY(args: Namespace):
