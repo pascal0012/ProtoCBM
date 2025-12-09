@@ -40,7 +40,17 @@ def ModelXtoC(args: Namespace):
 
 
 def ModelCtoY(args: Namespace):
-    # TODO: Load pretrained concept mapper here
+    backbone = backbone_by_name(args)
+
+    concept_mapper = concept_mapper_by_name(args, backbone.final_channel_dim)
+
+    # The auxiliary logits need a separate concept mapper, as they are of different channel dimensionality + feature map shape
+    concept_mapper_aux = None
+    if args.use_aux:
+        concept_mapper_aux = concept_mapper_by_name(
+            args, backbone.aux_final_channel_dim, is_aux=True
+        )
+
     classifier = MLP(
         input_dim=args.n_attributes,
         num_classes=N_CLASSES,

@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from losses import ProtoModLoss
 from models.concept_mapper import ProtoMod
-from models.models import ModelXtoC, ModelXtoCtoY, ModelXtoY
+from models.models import ModelCtoY, ModelXtoC, ModelXtoCtoY, ModelXtoY
 
 
 def prepare_model(
@@ -114,8 +114,7 @@ def model_by_mode(args: Namespace) -> nn.Module:
     elif args.mode == "XC":
         model = ModelXtoC(args)
     elif args.mode == "CY":
-        model = ModelXtoCtoY(args)
-        raise NotImplementedError("CY mode not implemented yet")
+        model = ModelCtoY(args)
 
     else:
         raise ValueError(f"Unknown mode {args.mode}")
