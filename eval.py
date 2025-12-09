@@ -5,19 +5,16 @@ Evaluate trained models on the official CUB test set
 import os
 import sys
 import torch
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from cub.dataset import CUBLocalizationDataset
-from cub.config import BASE_DIR
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics, create_mapping_attributes_to_part_seg_group
 from localization.visualise import create_attribute_mosaic, visualise_part_segmentations, visualise_localization_acc_boxes
 from localization.localization_accuracy import calculate_average_partwise_localization_accuracy, compute_localization_accuracy, create_part_attribute_mapping_tensor
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
-from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS, CBM_SELECTED_CUB_ATTRIBUTE_IDS
+from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS
 from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
-from utils_protocbm.eval_utils import get_eval_transform_for_model
+from utils_protocbm.eval_utils import get_localization_loader
 from utils_protocbm.train_utils import accuracy, prepare_model, model_by_mode, gather_args
 from utils_protocbm.perf import Timer
 
@@ -45,21 +42,8 @@ def eval(args):
         model, device = prepare_model(model, args, load_weights=True)
         model.eval()
 
-    transform, mask_transform, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
-
-    # Data management
-    pkl_path = os.path.join(BASE_DIR, args.split_dir)
-    data_dir = os.path.join(BASE_DIR, args.data_dir)
-    dataset = CUBLocalizationDataset(pkl_path, data_dir, img_size, transform, mask_transform)
-    loader = DataLoader(
-        dataset, 
-        batch_size=args.batch_size, 
-        shuffle=False, 
-        drop_last=False,
-        num_workers=2,  
-        pin_memory=True, 
-        persistent_workers=True,
-    )
+    # Get the localization data loader and additional transform statistics
+    loader, transform_mean, transform_std, img_size = get_localization_loader(model, args.data_dir, args.split_dir, args)
 
     # Creates a mapping tensor of attribute ids to their respective part segmentation group removes unmatched entries, returns kept attribute names
     map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = create_mapping_attributes_to_part_seg_group(
@@ -107,7 +91,7 @@ def eval(args):
                                                                                                     scores,
                                                                                                     saliency_maps,
                                                                                                     part_bbs,
-                                                                                                    dataset.part_dict,
+                                                                                                    loader.dataset.part_dict,
                                                                                                     map_part_to_attr_loc_acc,
                                                                                                     loc_acc_collector,
                                                                                                     img_size=img_size
@@ -143,7 +127,7 @@ def eval(args):
                     max_scores_per_part,
                     data_idx,
                     loc_ious,
-                    list(dataset.part_dict.values()),
+                    list(loader.dataset.part_dict.values()),
 		            t_mean=transform_mean,
                     t_std=transform_std,
                     save_path=args.out_dir_part_seg

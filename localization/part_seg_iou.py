@@ -2,6 +2,7 @@ import math
 from typing import List
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
 
 import os
 import sys
@@ -171,6 +172,7 @@ def compute_mIoU_statistics(
         iou_count_per_attr: torch.Tensor,
         attribute_names: List[str],
         map_attr_id_to_part_seg_group: torch.Tensor,
+        verbose=True
 ) -> None:
     """
         Computes and prints mIoU statistics: 1) globally, 2) per attribute, 3) per part segmentation group.
@@ -179,23 +181,29 @@ def compute_mIoU_statistics(
     miou_per_attr = iou_sum_per_attr / (iou_count_per_attr + 1e-7)
     miou_global = iou_sum_per_attr.sum() / iou_count_per_attr.sum()
 
-    print("\n--------- ATTRIBUTE-WISE mIoU ---------\n")
-    for attr_id in range(miou_per_attr.shape[0]):
-        print(f"Attr {attribute_names[attr_id]} - mIoU: {miou_per_attr[attr_id].item():.4f}")
+    # Only compute all group-wise statistics if we are going to print them, otherwise just return global mIoU
+    if verbose:
+        print("\n--------- ATTRIBUTE-WISE mIoU ---------\n")
+        for attr_id in range(miou_per_attr.shape[0]):
+            print(f"Attr {attribute_names[attr_id]} - mIoU: {miou_per_attr[attr_id].item():.4f}")
 
-    print("\n--------- PARTSEG-GROUP-WISE mIoU ---------\n")
-    num_groups = map_attr_id_to_part_seg_group.max().item() + 1
-    miou_group_sum = torch.zeros(num_groups, device=miou_per_attr.device)
-    miou_group_count = torch.zeros(num_groups, device=miou_per_attr.device)
+        print("\n--------- PARTSEG-GROUP-WISE mIoU ---------\n")
 
-    # Accumulate scores into groups
-    for attr_id in range(len(miou_per_attr)):
-        g = map_attr_id_to_part_seg_group[attr_id].item()
-        miou_group_sum[g] += miou_per_attr[attr_id]
-        miou_group_count[g] += 1
-    miou_per_group = miou_group_sum / (miou_group_count + 1e-7)
+        num_groups = map_attr_id_to_part_seg_group.max().item() + 1
+        miou_group_sum = torch.zeros(num_groups, device=miou_per_attr.device)
+        miou_group_count = torch.zeros(num_groups, device=miou_per_attr.device)
 
-    for group_id in range(miou_per_group.shape[0]):
-        print(f"Group {PART_SEG_GROUPS[group_id]} - mIoU: {miou_per_group[group_id].item():.4f}")
-    
-    print(f"Mean mIoU: {miou_global.item():.4f}")
+        # Accumulate scores into groups
+        for attr_id in range(len(miou_per_attr)):
+            g = map_attr_id_to_part_seg_group[attr_id].item()
+            miou_group_sum[g] += miou_per_attr[attr_id]
+            miou_group_count[g] += 1
+        miou_per_group = miou_group_sum / (miou_group_count + 1e-7)
+
+
+        for group_id in range(miou_per_group.shape[0]):
+            print(f"Group {PART_SEG_GROUPS[group_id]} - mIoU: {miou_per_group[group_id].item():.4f}")
+        
+        print(f"Mean mIoU: {miou_global.item():.4f}")
+
+    return miou_global.item()
