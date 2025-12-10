@@ -74,8 +74,8 @@ def compute_localization_accuracy(
     resized_heatmaps = torch.nn.functional.interpolate(heatmaps, size=img_size, mode='bilinear', align_corners=False)
 
     #get indices of max vals
-    B, A, H, W = heatmaps.shape
-    flat = heatmaps.view(B, A, -1) # [B, A(15), HxW]
+    B, A, H, W = resized_heatmaps.shape
+    flat = resized_heatmaps.view(B, A, -1) # [B, A(15), HxW]
 
     max_idx = flat.argmax(dim=2)
 
@@ -84,6 +84,7 @@ def compute_localization_accuracy(
 
     predicted_coords = torch.stack((x, y), dim=2)
     assert predicted_coords.shape == part_gts.shape
+    
 
     #now we have our part_gts [B, A(15), 2] and our predicted coords [B, A(15), 2] and can compute euclidean distance
     #assert 0 == 1
@@ -237,6 +238,7 @@ def calculate_average_partwise_localization_distance(all_distances:list[dict], s
     #preprocessing, merge groups that belong together and take the max iou value
     processed_distances = []
     for dist in all_distances:
+        new_part = {}
         for merged_part, group_parts in subgroup_mapping.items():
             best_dist = None
 
@@ -274,10 +276,10 @@ def calculate_average_partwise_localization_distance(all_distances:list[dict], s
     print("\n--------- LOCALIZATION DISTANCE ---------\n")
 
     for group_name, acc in res.items():
-        print(f"Group {group_name} - LocAcc: {acc:.4f}")
-    print(f"\nMean LocAcc: {mean_iou_acc:.4f}")
+        print(f"Group {group_name} - LocDist: {acc:.4f}")
+    print(f"\nMean LocDist: {mean_dist:.4f}")
 
-    return res, mean_iou_acc
+    return res, mean_dist
 
     
 def compute_optimal_masks(heatmaps, mask_sizes):

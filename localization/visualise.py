@@ -29,7 +29,7 @@ def visualize_keypoint_distances(gts,
     scores: list or tensor of 15 floats
     """
 
-    B, A, H, W = imgs.shape
+    B, C, H, W = imgs.shape
     # Sample random batches / attributes if none are provided
     if batch_idx is None:
         batch_idx = random.randint(0, B-1)
@@ -62,6 +62,10 @@ def visualize_keypoint_distances(gts,
 
         gx, gy = gt_np[i]
         px, py = pred_np[i]
+
+        if gx == 0 and gy == 0:
+            ax.set_title(f"{part_names[i]}\ndist: {dists_np[i]:.1f}")
+            continue
 
         # Ground truth point (green)
         ax.scatter(gx, gy, c="lime", s=40, marker="o", label="GT")

@@ -24,7 +24,7 @@ from localization.localization_accuracy import (
 )
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
-from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS
+from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS, MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS
 from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
 from utils_protocbm.eval_utils import get_localization_loader
 from utils_protocbm.train_utils import accuracy, prepare_model, model_by_mode, gather_args
@@ -160,7 +160,10 @@ def eval(args):
                                              predicted_coords,
                                              dists,
                                              data_idx,
-                                             list(loader.dataset.part_dict.values())
+                                             list(loader.dataset.part_dict.values()),
+                                             t_mean=transform_mean, 
+                                             t_std=transform_std,
+                                             save_path=args.out_dir_part_seg
                 )
 
                 """visualise_localization_acc_boxes(
@@ -199,7 +202,7 @@ def eval(args):
     # Compute part localization statistics, considering our grouping of attributes to groups.
     #calculate_average_partwise_localization_accuracy(loc_acc_collector, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS, IoU_thr=args.IoU_threshold)
 
-    calculate_average_partwise_localization_distance(loc_acc_collector, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS)
+    calculate_average_partwise_localization_distance(loc_acc_collector, MAP_RESULT_GROUPS_TO_CUB_GROUPS)
 
     # Compute mean classification accuracy and print
     mean_acc = acc_sum / (acc_count + 1e-7)

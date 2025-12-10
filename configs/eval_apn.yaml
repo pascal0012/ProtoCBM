@@ -7,7 +7,7 @@ concept_activation: none    # "relu" or "sigmoid"
 
 saliency_method: attention
 IoU_threshold: 0.5
-plot_curve: True
+plot_curve: False
 
 log_dir: outputs/APN
 data_dir: /home/ms66gide/data/CUB_200_2011
