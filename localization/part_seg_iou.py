@@ -118,7 +118,7 @@ def create_mapping_attributes_to_part_seg_group(data_dir, device, only_cbm_attri
     return map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_id_mask
 
 
-def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.Tensor, map_attr_id_to_part_seg_group: torch.Tensor, hard_iou=True):
+def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.Tensor, map_attr_id_to_part_seg_group: torch.Tensor, hard_iou=True, keep_threshold=0.5):
     """
         Given a saliency map per attribute of any model and the corresponding part segmentation mask for that attribute, we compute the IoU
         between them. The saliency map does not have to have the same shape as the part segmentation masks, this method resizes them to
@@ -153,7 +153,7 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
 
     # Compute hard IoU on binarized attention masks
     if hard_iou:
-        binarized_saliency_maps = percentile_threshold_maps(saliency_maps).float()
+        binarized_saliency_maps = percentile_threshold_maps(saliency_maps, keep_threshold).float()
         binarized_saliency_maps_upsampled = F.interpolate(binarized_saliency_maps, size=(H, W), mode='nearest')
         iou_per_attr = compute_iou(binarized_saliency_maps_upsampled, seg_masks_per_attribute)  # [B, A]
     # Compute soft IoU

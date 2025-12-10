@@ -10,6 +10,108 @@ import torch
 import torch.nn.functional as F
 
 
+def visualize_keypoint_distances(gts, 
+                                imgs,
+                                img_paths, 
+                                preds, 
+                                dists, 
+                                batch_nr,
+                                part_names,
+                                batch_idx=None,
+                                t_mean=(0.5, 0.5, 0.5),
+                                t_std=(2, 2, 2),
+                                save_path=""):
+    """
+    gt:   torch.Tensor (15,2)   -> ground truth xy
+    pred: torch.Tensor (15,2)   -> predicted xy
+    image: numpy or torch image HxWx3
+    names: list of 15 strings
+    scores: list or tensor of 15 floats
+    """
+
+    B, A, H, W = imgs.shape
+    # Sample random batches / attributes if none are provided
+    if batch_idx is None:
+        batch_idx = random.randint(0, B-1)
+    n_parts = gts.shape[1]
+
+    gt = gts[batch_idx]
+    img = imgs[batch_idx]
+    img_path = img_paths[batch_idx]
+    pred = preds[batch_idx]
+    dists = dists[batch_idx]
+    #gts = part_gts[batch_idx]
+
+    # Convert tensors to numpy
+    gt_np = gt.cpu().numpy()
+    pred_np = pred.cpu().numpy()
+    dists_np = dists.cpu().numpy()
+
+    img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
+    img_np = img_np * np.array(t_std) + np.array(t_mean)
+    img_np = np.clip(img_np, 0, 1)
+
+    # Make 15 subplots
+    fig, axes = plt.subplots(3, 5, figsize=(20, 10))
+    axes = axes.flatten()
+
+    for i in range(15):
+        ax = axes[i]
+        ax.imshow(img_np)
+        ax.axis("off")
+
+        gx, gy = gt_np[i]
+        px, py = pred_np[i]
+
+        # Ground truth point (green)
+        ax.scatter(gx, gy, c="lime", s=40, marker="o", label="GT")
+
+        # Predicted point (red)
+        ax.scatter(px, py, c="red", s=40, marker="x", label="Pred")
+
+        # Line between them (dotted)
+        ax.plot([gx, px], [gy, py], "w--", linewidth=1.5)
+
+        # Title with name, score, and distance
+        ax.set_title(f"{part_names[i]}\ndist: {dists_np[i]:.1f}")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, f"b{batch_nr}_id{batch_idx}_part_viz.png"), dpi=200, bbox_inches='tight')
+
+
+
+def plot_threshold_curve(thresholds, accs, save_path="", label_area=True):
+    #print(save_path)
+    #print(thresholds)
+    #print(accs)
+    thresholds = np.array(thresholds)
+    accuracies = np.array(accs)
+
+    # Calculate Area Under the Curve
+    auc = np.trapz(accuracies, thresholds)
+
+    # Plot
+    plt.figure(figsize=(8, 5))
+    plt.plot(thresholds, accuracies, marker='o')
+    plt.xlabel("Threshold")
+    plt.ylabel("Accuracy")
+    plt.title("Threshold–Accuracy Tradeoff Curve")
+
+    # Annotate AUC on plot
+    plt.text(
+        0.05, 0.05,
+        f"AUC = {auc:.4f}",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        bbox=dict(facecolor='white', alpha=0.7)
+    )
+
+    plt.grid(True)
+
+    plt.savefig(os.path.join(save_path, "mIoU_threshold_curve.png"), bbox_inches='tight')
+
+
+
 def create_attribute_mosaic(
     images,             # torch tensor, shape (I, C, H, W)
     heatmaps,           # torch tensor, shape (I, A, H, W)
@@ -177,7 +279,7 @@ def visualise_localization_acc_boxes(
     batch_nr,
     batch_ious,
     part_names,
-    batch_idx=0,
+    batch_idx=None,
     t_mean=(0.5, 0.5, 0.5),
     t_std=(2, 2, 2),
     save_path=""

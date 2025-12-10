@@ -7,13 +7,14 @@ concept_activation: none    # "relu" or "sigmoid"
 
 saliency_method: attention
 IoU_threshold: 0.5
+plot_curve: True
 
 log_dir: outputs/APN
-data_dir: data/CUB_200_2011
-split_dir: data/CUB_processed/class_attr_data_10/test.pkl
+data_dir: /home/ms66gide/data/CUB_200_2011
+split_dir: /home/ms66gide/data/CUB_processed/class_attr_data_10/test.pkl
 backbone_dir: outputs/APN/resnet101_c.pth.tar
 apn_weights_dir: outputs/APN/CUB_ZSL_id_0.pth
-vis_every_n: 3
+vis_every_n: 1
 seed: 1
 
 batch_size: 64

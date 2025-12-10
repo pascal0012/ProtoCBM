@@ -9,6 +9,7 @@ def compute_localization_accuracy(
     pre_attri: torch.FloatTensor,
     attention: torch.FloatTensor,
     bounding_box_per_part: torch.IntTensor,
+    part_gts:torch.IntTensor,
     part_dict: Dict[str, int],
     part_attribute_mapping_tensor: Dict[str, torch.IntTensor], 
     collector_list: List[Dict[str, float]],
@@ -57,6 +58,11 @@ def compute_localization_accuracy(
     # Create a mask to track which part bounding boxes are non-empty
     valid_mask = (bounding_box_per_part.sum(dim=-1) != 0)  # [B, K]
     
+    #part is [0, 0] if it doesnt exist
+    valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
+
+
+
     # Take heatmaps: For each part, get the heatmap of the attribute belonging to that part that had the highest activation
     # TODO: Check this if this is correct! Maybe need torch.gather
     idx = torch.stack(tuple(argmax_per_part)).to(attention.device) # [K, B]
@@ -67,9 +73,35 @@ def compute_localization_accuracy(
     # Resize heatmaps to image size
     resized_heatmaps = torch.nn.functional.interpolate(heatmaps, size=img_size, mode='bilinear', align_corners=False)
 
+    #get indices of max vals
+    B, A, H, W = heatmaps.shape
+    flat = heatmaps.view(B, A, -1) # [B, A(15), HxW]
+
+    max_idx = flat.argmax(dim=2)
+
+    y = max_idx // W
+    x = max_idx % W
+
+    predicted_coords = torch.stack((x, y), dim=2)
+    assert predicted_coords.shape == part_gts.shape
+
+    #now we have our part_gts [B, A(15), 2] and our predicted coords [B, A(15), 2] and can compute euclidean distance
+    #assert 0 == 1
+    diff = part_gts.float() - predicted_coords.float()
+    dist = torch.norm(diff, dim=2) # [B, A(15)]
+
+    #now we set the distance of not present parts to -1
+    dist[~valid_mask] = -1
+
+    for i in range(dist.shape[0]):
+        sub_res = dict(zip(list(part_dict.values()), dist[i].tolist()))
+        collector_list.append(sub_res)
+    """
     # Compute sliding window from heatmaps
     optimal_masks_batch = compute_optimal_masks_per_mask(resized_heatmaps, bounding_box_per_part) # [B, K, 4]
     optimal_masks_batch[~valid_mask] = 0
+
+
 
     # Get the IoU between the bounding boxes and our heatmaps, per part over all images, set to -1 for non-existing parts
     ious = bbox_iou_tensor(optimal_masks_batch, bounding_box_per_part)
@@ -79,9 +111,10 @@ def compute_localization_accuracy(
     # Take computed IoUs per part and store them to dict for later calculation
     for i in range(ious.shape[0]):
         sub_res = dict(zip(list(part_dict.values()), ious[i].tolist()))
-        collector_list.append(sub_res)
-
-    return optimal_masks_batch, bounding_box_per_part, ious, resized_heatmaps, max_scores_per_part
+        collector_list.append(sub_res)"""
+    return predicted_coords, dist, resized_heatmaps, max_scores_per_part
+    
+    #return optimal_masks_batch, bounding_box_per_part, ious, resized_heatmaps, max_scores_per_part
 
 
 def create_part_attribute_mapping_tensor(part_attribute_mapping: Dict[str, List[int]], device):
@@ -189,6 +222,56 @@ def calculate_average_partwise_localization_accuracy(all_ious:list[dict], subgro
     mean_iou_acc = sum(mean_iou)/len(mean_iou)
 
     print("\n--------- LOCALIZATION ACCURACY ---------\n")
+
+    for group_name, acc in res.items():
+        print(f"Group {group_name} - LocAcc: {acc:.4f}")
+    print(f"\nMean LocAcc: {mean_iou_acc:.4f}")
+
+    return res, mean_iou_acc
+
+
+def calculate_average_partwise_localization_distance(all_distances:list[dict], subgroup_mapping:dict):
+    #compute acc with ious and threshold for all images per part
+    #all ious = list with each item having a matching from part to iou
+
+    #preprocessing, merge groups that belong together and take the max iou value
+    processed_distances = []
+    for dist in all_distances:
+        for merged_part, group_parts in subgroup_mapping.items():
+            best_dist = None
+
+            for p in group_parts:
+                if p in dist and dist[p] != -1:
+                    if best_dist is None or dist[p] < best_dist:
+                        best_dist = dist[p]
+
+            # if no valid distance found set to -1
+            new_part[merged_part] = best_dist if best_dist is not None else -1
+        
+        processed_distances.append(new_part)
+
+    #collect part ious over all images
+    collect = {}
+    for part in processed_distances[0].keys():
+        collect[part] = []
+
+    for dist in processed_distances:
+        for part, value in dist.items():
+            if value == -1: #this part was not present in the image, no iou
+                continue
+            collect[part].append(value) #binary results for acc
+
+    #divide sum by amount
+
+    res = {}
+    for part, collected_dists in collect.items():
+        res[part] = sum(collected_dists)/len(collected_dists) if len(collected_dists) != 0 else -1
+
+
+    mean_dist = [x for _, x in res.items() if x != -1]
+    mean_dist = sum(mean_dist)/len(mean_dist)
+
+    print("\n--------- LOCALIZATION DISTANCE ---------\n")
 
     for group_name, acc in res.items():
         print(f"Group {group_name} - LocAcc: {acc:.4f}")
