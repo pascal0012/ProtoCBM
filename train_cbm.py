@@ -16,6 +16,8 @@ import yaml
 from torch import nn
 from tqdm import tqdm
 
+import nanoid
+
 from cub.config import (
     BASE_DIR,
     LR_DECAY_SIZE,
@@ -101,10 +103,10 @@ def compute_standard_losses(
         out_start = 1
 
     if attr_criterion is not None and args.attr_loss_weight > 0:
-        for i, crit in enumerate(attr_criterion):
+        for i, attr_crit in enumerate(attr_criterion):
             losses.append(
                 args.attr_loss_weight
-                * crit(outputs[i + out_start].squeeze(), attr_labels[:, i])
+                * attr_crit(outputs[i + out_start].squeeze(), attr_labels[:, i])
             )
     return losses
 
@@ -210,13 +212,14 @@ def run_epoch(
     ):
         inputs, labels, attr_labels = batch
 
+                
         if attr_criterion is not None:
             attr_labels = torch.stack(attr_labels, dim=1).float()
             attr_labels_var = attr_labels.to(device)
 
         inputs, labels = (
-            inputs.to(device),
-            labels.to(device),
+            inputs.to(device, non_blocking=True),
+            labels.to(device, non_blocking=True),
         )
 
         if is_training and args.use_aux:
@@ -257,6 +260,8 @@ def run_epoch(
             )
             attr_acc_meter.update(attr_acc, batch_size)
 
+
+
         total_loss = None
         if attr_criterion is not None:
             if args.bottleneck:
@@ -270,11 +275,12 @@ def run_epoch(
                     attr_loss = attr_loss / (args.attr_loss_weight * args.n_attributes)
 
                 back_loss = losses[0] + attr_loss
-                total_loss = (losses[0].detach(), attr_loss.detach())
+                
+                total_loss = (back_loss.detach(), attr_loss.detach())
         else:
             # finetune
-            back_loss = losses[0]
-            total_loss = [losses[0].detach()]
+            back_loss = sum(losses)
+            total_loss = [back_loss.detach()]
 
         loss_meter.update(np.array([x.cpu() for x in total_loss]), len(total_loss))
 
@@ -413,7 +419,7 @@ def train(model: nn.Module, args: Namespace) -> float:
             logger.write("New model best model at epoch %d\n" % epoch)
             torch.save(
                 model.state_dict(),
-                os.path.join(args.log_dir, "best_model_%d.pth" % args.seed),
+                os.path.join(args.log_dir, args.model_name, f"{model.name}_best_model_seed=%d.pth" % args.seed),
             )
 
         train_loss_avg = train_loss_meter.avg
@@ -499,6 +505,8 @@ if __name__ == "__main__":
     args = normalize_scientific_floats(args)
 
     args = argparse.Namespace(**args, config_path=cli_args.config)
+    args.model_name = nanoid.generate()
+
 
     # Initialize wandb if requested in config and available
     use_wandb = getattr(args, "use_wandb", False)
@@ -518,6 +526,8 @@ if __name__ == "__main__":
 
     print("creating model...")
     model = model_by_mode(args)
+    model.name = args.model_name
+    print("Running model with name:", model.name)
 
     print("starting training...")
     train(model, args)
