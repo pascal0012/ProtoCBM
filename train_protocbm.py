@@ -87,7 +87,6 @@ def epoch_wrapper(
         else:
             (outputs, similarity_scores, attention_maps) = model(inputs)
 
-
             if model.classifier is None:
                 classification_loss = torch.tensor(-1.0, device=device)
             else:
@@ -280,7 +279,9 @@ if __name__ == "__main__":
     model = model_by_mode(args)
 
     if args.checkpoint != "":
-        model.load_state_dict(torch.load(args.checkpoint))
+        model.load_state_dict(
+            torch.load(args.checkpoint, map_location="cpu"), strict=False
+        )
         print("Continuing with checkpoint:", args.checkpoint)
 
     train(model, args)

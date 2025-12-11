@@ -24,7 +24,6 @@ class CUBDataset(Dataset):
 
     def __init__(self, 
         pkl_file_paths: list[str], 
-        no_img: bool,
         image_dir: str, 
         transform=None
     ):
@@ -51,7 +50,6 @@ class CUBDataset(Dataset):
             self.data.extend(pickle.load(open(file_path, 'rb')))
         
         self.transform = transform
-        self.no_img = no_img
         self.image_dir = image_dir
 
     def __len__(self):
@@ -80,10 +78,8 @@ class CUBDataset(Dataset):
             img = self.transform(img)
 
         attr_label = img_data['attribute_label']
-        if self.no_img:
-            return attr_label, class_label
-        else:
-            return img, class_label, attr_label
+
+        return img, class_label, attr_label
 
 
 class CUBLocalizationDataset(Dataset):
@@ -460,7 +456,6 @@ def load_data(args, split: Literal["train", "val", "test"]):
     transform = get_transform_by_backbone(is_training, args)
     dataset = CUBDataset(
         pkl_paths, 
-        args.mode == "CY", 
         args.image_dir, 
         transform
     )
