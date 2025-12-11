@@ -86,6 +86,7 @@ def eval(args):
 
     with torch.no_grad():
         for data_idx, data in enumerate(tqdm(loader, desc="Evaluating batches:")):
+
             # Cast data to device
             data = [v.to(device) if torch.is_tensor(v) else v for v in data]
 
@@ -126,7 +127,7 @@ def eval(args):
             # Compute IoU between part segmentation masks and our saliency maps, for each attribute
             # Map out unmapped attributes from the saliency mask
             iou_scores, spr, cpr, saliency_maps_upsampled, seg_masks_per_attribute = compute_IoU_to_seg_masks(
-                saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group
+                saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, scores[:, unmatched_attr_mask]
             )
             iou_sum_per_attr += spr
             iou_count_per_attr += cpr
@@ -137,14 +138,12 @@ def eval(args):
                     # Compute IoU between part segmentation masks and our saliency maps, for each attribute
                     # Map out unmapped attributes from the saliency mask
                     _, tspr, tcpr, _, _ = compute_IoU_to_seg_masks(
-                        saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, keep_threshold=t
+                        saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, scores, keep_threshold=t
                     )
 
                     threshold_ious[i] += tspr
                     threshold_counts[i] += tcpr
                 #------
-            if data_idx > 1:
-                break
 
             # Visualise part segmentations with saliency
             if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
