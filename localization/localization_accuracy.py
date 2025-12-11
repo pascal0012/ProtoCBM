@@ -5,6 +5,105 @@ import torch
 import torch.nn.functional as F
 
 
+
+
+
+
+def compute_localization_accuracy_without_argmaxing(
+    pre_attri: torch.FloatTensor,
+    attention: torch.FloatTensor,
+    bounding_box_per_part: torch.IntTensor,
+    part_gts: torch.IntTensor,
+    part_dict: Dict[str, int],
+    part_attribute_mapping_tensor: Dict[str, torch.IntTensor],
+    collector_list: List[Dict[str, float]],
+    img_size: int = 299,
+):
+    """
+    Computes localization distance per part without using argmax over attributes.
+    Instead, computes predicted coordinates for every attribute, then aggregates
+    distances for attributes belonging to each part.
+
+    Returns:
+        predicted_coords_attr: [B, A, 2]
+        dist_per_part:        [B, K]
+        resized_heatmaps:     [B, A, H', W']
+        aggregated_scores:    [B, K] (max activation per part group)
+    """
+
+    B, A, H_att, W_att = attention.shape
+
+    # Resize heatmaps to image size
+    resized_heatmaps = torch.nn.functional.interpolate(
+        attention, size=img_size, mode='bilinear', align_corners=False
+    )  # [B, A, img, img]
+
+    # ---- 1) Compute predicted coordinates for EVERY ATTRIBUTE -------------
+    B, A, H, W = resized_heatmaps.shape
+    flat = resized_heatmaps.view(B, A, -1)
+
+    max_idx = flat.argmax(dim=2)  # [B, A]
+
+    y_attr = max_idx // W
+    x_attr = max_idx % W
+    predicted_coords_attr = torch.stack((x_attr, y_attr), dim=2)  # [B, A, 2]
+
+    # ---- 2) Compute distance for EVERY ATTRIBUTE to its part GT -----------
+    # part_gts is [B, K, 2]. We need each attribute to know which part it belongs to.
+    #
+    # Create lookup table attr -> part index
+    attr_to_part = torch.full((A,), -1, dtype=torch.long)
+    for part_idx, (part_id, part_name) in enumerate(part_dict.items()):
+        attrs = part_attribute_mapping_tensor[part_name]
+        attr_to_part[attrs] = part_idx
+
+    # Compute distance per attribute (for attributes that belong to a part)
+    dist_attr = torch.zeros(B, A, device=attention.device)
+
+    for a in range(A):
+        part_idx = attr_to_part[a].item()
+        if part_idx == -1:
+            dist_attr[:, a] = -1
+            continue
+
+        diff = part_gts[:, part_idx, :].float() - predicted_coords_attr[:, a, :].float()
+        dist_attr[:, a] = torch.norm(diff, dim=1)
+
+    # ---- 3) Aggregate per part -------------------------------------------
+    K = len(part_dict)
+    dist_per_part = torch.zeros(B, K, device=attention.device)
+    aggregated_scores = torch.zeros(B, K, device=attention.device)
+
+    for part_idx, (part_id, part_name) in enumerate(part_dict.items()):
+        attrs = part_attribute_mapping_tensor[part_name]
+
+        # distances for all attributes of this part
+        sub_dists = dist_attr[:, attrs]  # [B, n_attr]
+
+        # choose min distance among attributes (you may change to mean/max)
+        min_dists = sub_dists.min(dim=1).values
+        dist_per_part[:, part_idx] = min_dists
+
+        # aggregate scores (e.g., max activation)
+        aggregated_scores[:, part_idx] = pre_attri[:, attrs].max(dim=1).values
+
+    # ---- 4) Set distances to -1 for parts not present ---------------------
+    valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
+    dist_per_part[~valid_mask] = -1
+
+    # ---- 5) Collect results -----------------------------------------------
+    for i in range(B):
+        sub_res = dict(zip(list(part_dict.values()), dist_per_part[i].tolist()))
+        collector_list.append(sub_res)
+
+    return predicted_coords_attr, dist_per_part, resized_heatmaps, aggregated_scores
+
+
+
+
+
+
+
 def compute_localization_accuracy(
     pre_attri: torch.FloatTensor,
     attention: torch.FloatTensor,

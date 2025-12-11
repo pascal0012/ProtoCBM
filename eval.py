@@ -20,7 +20,8 @@ from localization.localization_accuracy import (
     calculate_average_partwise_localization_accuracy, 
     compute_localization_accuracy, 
     create_part_attribute_mapping_tensor,
-    calculate_average_partwise_localization_distance
+    calculate_average_partwise_localization_distance,
+    compute_localization_accuracy_without_argmaxing
 )
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
@@ -101,17 +102,29 @@ def eval(args):
             acc_sum += accuracy(pred, labels, topk=(1,))[0]
             acc_count += 1
             
-            # Compute localization accuracy and collect into our collector
-            predicted_coords, dists, resized_heatmaps, max_scores_per_part = compute_localization_accuracy(
-                                                                                                    scores,
-                                                                                                    saliency_maps,
-                                                                                                    part_bbs,
-                                                                                                    part_gts,
-                                                                                                    loader.dataset.part_dict,
-                                                                                                    map_part_to_attr_loc_acc,
-                                                                                                    loc_acc_collector,
-                                                                                                    img_size=img_size
-                                                                                                    )
+            if args.use_argmax:
+                # Compute localization accuracy and collect into our collector
+                predicted_coords, dists, resized_heatmaps, max_scores_per_part = compute_localization_accuracy(
+                                                                                                        scores,
+                                                                                                        saliency_maps,
+                                                                                                        part_bbs,
+                                                                                                        part_gts,
+                                                                                                        loader.dataset.part_dict,
+                                                                                                        map_part_to_attr_loc_acc,
+                                                                                                        loc_acc_collector,
+                                                                                                        img_size=img_size
+                                                                                                        )
+            else:
+                predicted_coords, dists, resized_heatmaps, max_scores_per_part = compute_localization_accuracy_without_argmaxing(
+                                                                                                        scores,
+                                                                                                        saliency_maps,
+                                                                                                        part_bbs,
+                                                                                                        part_gts,
+                                                                                                        loader.dataset.part_dict,
+                                                                                                        map_part_to_attr_loc_acc,
+                                                                                                        loc_acc_collector,
+                                                                                                        img_size=img_size
+                                                                                                        )
             
             """loc_optimal_masks_batch, _, loc_ious, loc_resized_heatmaps, max_scores_per_part = compute_localization_accuracy(
                                                                                                     scores,
