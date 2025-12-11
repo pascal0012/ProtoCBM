@@ -43,6 +43,9 @@ def ModelCtoY(args: Namespace):
     backbone = backbone_by_name(args)
 
     concept_mapper = concept_mapper_by_name(args, backbone.final_channel_dim)
+    # For C->Y we do not optimize the concept mapper
+    for _, param in list(concept_mapper.named_parameters()) + list(backbone.named_parameters()):
+        param.requires_grad = False
 
     # The auxiliary logits need a separate concept mapper, as they are of different channel dimensionality + feature map shape
     concept_mapper_aux = None
