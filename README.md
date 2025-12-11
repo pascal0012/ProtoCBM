@@ -14,8 +14,8 @@ Shoud you want to store the data in a different location please modify the `BASE
 
 ### Training Datat
 The training data can be 
-curl -L -o ~/Downloads/cub2002011.zip\
-https://worksheets.codalab.org/bundles/0xd013a7ba2e88481bbc07e787f73109f5
+
+curl -L "https://storageclwsprod1.blob.core.windows.net/bundles/0xd013a7ba2e88481bbc07e787f73109f5/contents.tar.gz?se=2025-12-11T19%3A44%3A39Z&sp=rt&sv=2019-12-12&sr=b&rscd=attachment%3B%20filename%3D%22CUB_200_2011.tar.gz%22&rsce=identity&rsct=application/gzip&sig=qSpj/DcMwWU4ue1shPbq9BUzt7F3R79Zhs4Rgy4xNh8%3D"
 
 Additionally to the CUB_200_2011 dataset we use the preprocessed training data from the CUB paper. The processed data can be downloaded using the following link.
 https://worksheets.codalab.org/bundles/0x5b9d528d2101418b87212db92fea6683
@@ -39,8 +39,6 @@ tar -xJf AnnotationMasksPerclass.tar.xz -C data/CUB_200_2011/part_segmentations/
 
 
 ## Execution
-
-
 ## BibTeX Citation
 ```
 @inproceedings{behzadi2023protocol,
