@@ -159,7 +159,7 @@ class CUBLocalizationDataset(Dataset):
             if isinstance(self.resize_size, int):
                 smaller_side = float(min(og_img_w, og_img_h))
                 ratio = float(self.resize_size) / smaller_side
-                new_size = [og_img_w * ratio, og_img_h * ratio]
+                new_size = [int(og_img_w * ratio), int(og_img_h * ratio)]
             else:
                 new_size = self.resize_size
             part_bbs = self.resize_bounding_boxes(part_bbs, [og_img_w, og_img_h], new_size)
