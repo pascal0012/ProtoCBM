@@ -1,4 +1,5 @@
 n_attributes: 112
+val_metric: ["class_acc", "concept_acc", "dist_loc"]
 
 model_name: protocbm
 concept_mapper: protomod
@@ -8,7 +9,7 @@ image_dir: data/CUB_200_2011/images
 data_dir: data/CUB_processed/class_attr_data_10
 seed: 1
 
-epochs: 2 # 1000
+epochs: 1000
 batch_size: 64
 lr: 0.001
 optimizer: sgd

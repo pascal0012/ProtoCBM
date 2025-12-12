@@ -171,9 +171,9 @@ def epoch_wrapper(
     if not is_training:
         for val_metric_str in args.val_metric:
             if val_metric_str == "class_acc":      # --- Class accuracy
-                val_metric += class_acc_meter.avg
+                val_metric += class_acc_meter.avg.squeeze().cpu()
             if val_metric_str == "concept_acc":  # --- Concept accuracy
-                val_metric += attr_acc_meter.avg
+                val_metric += attr_acc_meter.avg.squeeze().cpu()
             if val_metric_str == "seg_iou":  # --- Segmentation IoU
                 val_metric += loc_meter.compute(dataloader.dataset.map_attr_id_to_part_seg_group)
             if val_metric_str == "dist_loc": # --- Localization distance
