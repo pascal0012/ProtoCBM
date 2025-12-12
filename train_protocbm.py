@@ -11,11 +11,10 @@ from torch import nn
 from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
 from localization.localization_accuracy import (
-    compute_localization_accuracy, 
+    compute_localization_accuracy_without_argmaxing, 
     calculate_average_partwise_localization_distance
 )
 from losses import ProtoModLoss
-from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.eval_utils import (
     LocalizationMeter,
     eval_part_segmentation_iou,
@@ -155,7 +154,7 @@ def epoch_wrapper(
                     )
                 )
             if 'dist_loc' in args.val_metric: 
-                compute_localization_accuracy(
+                compute_localization_accuracy_without_argmaxing(
                     similarity_scores, attention_maps, part_bbs, part_gts, dataloader.dataset.part_dict,
                     dataloader.dataset.map_part_to_attr_loc_acc, loc_acc_meter, img_size=inputs.shape[-1]
                 )
@@ -263,10 +262,13 @@ def train(model: nn.Module, args: Namespace) -> float:
             best_val_metric = val_metric
 
             logger.write("New model best model at epoch %d" % epoch)
-            torch.save(
-                model.state_dict(),
-                os.path.join(args.log_dir, f"best_model_{args.seed}.pth"),
-            )
+
+            # Save model
+            if getattr(args, "save_model", True):
+                torch.save(
+                    model.state_dict(),
+                    os.path.join(args.log_dir, f"best_model_{args.seed}.pth"),
+                )
 
         logger_lst = [
             datetime.now().strftime("%H:%M:%S"),

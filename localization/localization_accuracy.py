@@ -5,10 +5,6 @@ import torch
 import torch.nn.functional as F
 
 
-
-
-
-
 def compute_localization_accuracy_without_argmaxing(
     pre_attri: torch.FloatTensor,
     attention: torch.FloatTensor,
@@ -99,11 +95,6 @@ def compute_localization_accuracy_without_argmaxing(
     return predicted_coords_attr, dist_per_part, resized_heatmaps, aggregated_scores
 
 
-
-
-
-
-
 def compute_localization_accuracy(
     pre_attri: torch.FloatTensor,
     attention: torch.FloatTensor,
@@ -159,8 +150,6 @@ def compute_localization_accuracy(
     
     #part is [0, 0] if it doesnt exist
     valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
-
-
 
     # Take heatmaps: For each part, get the heatmap of the attribute belonging to that part that had the highest activation
     # TODO: Check this if this is correct! Maybe need torch.gather

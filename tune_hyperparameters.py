@@ -44,7 +44,7 @@ def objective(args: Namespace, trial: optuna.Trial):
 
 if __name__ == "__main__":
     args = gather_args()
-    args.use_localization_metric = False
+    args.save_model = False
     study = optuna.create_study(direction="maximize")
     study.optimize(lambda trial: objective(args, trial), n_trials=50)
 

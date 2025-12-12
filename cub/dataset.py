@@ -103,9 +103,11 @@ class CUBLocalizationDataset(Dataset):
             cbm_attributes: Whether we use cbm-based attributes.
         """
 
-        # Load pickled data
+        # Load pickled data, load proper split depending on whether APN attributes are used or CBM attributes
         self.data = []
         assert "test" in pkl_path or "val" in pkl_path
+        pkl_path_parts = pkl_path.split(".")
+        pkl_path = pkl_path_parts[0] + ("_apn" if not cbm_attributes else "") + "." + pkl_path_parts[1]
         self.data = pickle.load(open(pkl_path, 'rb'))
 
         # Construct paths
@@ -129,7 +131,7 @@ class CUBLocalizationDataset(Dataset):
         # Mapping tensor of attribute ids to their respective part segmentation group removes unmatched entries, returns kept attribute names
         map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = (
             create_mapping_attributes_to_part_seg_group(
-                data_dir, "cuda" if torch.cuda.is_available() else "cpu", only_cbm_attributes=True
+                data_dir, "cuda" if torch.cuda.is_available() else "cpu", only_cbm_attributes=cbm_attributes
             )
         )
         self.map_attr_id_to_part_seg_group = map_attr_id_to_part_seg_group

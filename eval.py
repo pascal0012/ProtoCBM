@@ -77,7 +77,7 @@ def eval(args):
             attr_labels = torch.stack(attr_labels, dim=1).float().to(device)
 
             # Pass through model, get model prediction and saliency map per attribute
-            pred, scores, saliency_maps = get_saliency_map_and_scores_and_prediction(model, inputs, args)
+            pred, scores, saliency_maps = get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=attr_labels)
             saliency_maps = saliency_maps.to(device)
 
             # Calculate classification accuracy
@@ -88,29 +88,12 @@ def eval(args):
             attr_acc = binary_accuracy(scores, attr_labels)
             attr_acc_meter.update(attr_acc, pred.size(0))
             
-            if args.use_argmax:
-                # Compute localization accuracy and collect into our collector
-                predicted_coords, dists, resized_heatmaps, max_scores_per_part = compute_localization_accuracy(
-                                                                                                        scores,
-                                                                                                        saliency_maps,
-                                                                                                        part_bbs,
-                                                                                                        part_gts,
-                                                                                                        loader.dataset.part_dict,
-                                                                                                        loader.dataset.map_part_to_attr_loc_acc,
-                                                                                                        loc_acc_collector,
-                                                                                                        img_size=img_size
-                                                                                                        )
-            else:
-                predicted_coords, dists, resized_heatmaps, max_scores_per_part = compute_localization_accuracy_without_argmaxing(
-                                                                                                        scores,
-                                                                                                        saliency_maps,
-                                                                                                        part_bbs,
-                                                                                                        part_gts,
-                                                                                                        loader.dataset.part_dict,
-                                                                                                        loader.dataset.map_part_to_attr_loc_acc,
-                                                                                                        loc_acc_collector,
-                                                                                                        img_size=img_size
-                                                                                                        )
+            # Compute localization accuracy and collect into our collector
+            dist_loc_fct = compute_localization_accuracy if args.use_argmax else compute_localization_accuracy_without_argmaxing
+            predicted_coords, dists, _, _ = dist_loc_fct(
+                scores, saliency_maps, part_bbs, part_gts,loader.dataset.part_dict,
+                loader.dataset.map_part_to_attr_loc_acc, loc_acc_collector, img_size=img_size
+            )
 
             # Compute IoU between part segmentation masks and our saliency maps, for each attribute
             # Map out unmapped attributes from the saliency mask
@@ -119,18 +102,16 @@ def eval(args):
             )
             seg_loc_meter.update(spr, cpr)
 
+            if data_idx > 5:
+                break
+            # Compute curve statistics
             if args.plot_curve:
-                #--- compute curve stats ---
                 for i, t in enumerate(thresholds):
-                    # Compute IoU between part segmentation masks and our saliency maps, for each attribute
-                    # Map out unmapped attributes from the saliency mask
                     _, tspr, tcpr, _, _ = compute_IoU_to_seg_masks(
                         saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, scores, keep_threshold=t
                     )
-
                     threshold_ious[i] += tspr
                     threshold_counts[i] += tcpr
-                #------
 
             # Visualise part segmentations with saliency
             if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:

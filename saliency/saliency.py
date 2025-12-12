@@ -6,15 +6,18 @@ from captum.attr import LayerAttribution, LayerGradCam
 from saliency.utils import find_fist_conv
 
 
-def get_saliency_map_and_scores_and_prediction(model, inputs, args):
+def get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=None):
     """
-    Given a saliency method, a salieny method for the current model output is created and returned. Alongside it,
-    the prediction will be extracted from the output tuple and returned. Also, a similarity score will be returned
-    per attribute. If the model does NOT support this, it'll simply return a dummy value.
+    Given a saliency method, a salieny method for the current model is created and returned. Alongside it,
+    the model forward pass will be perfomed and the prediction will be extracted from the output tuple and
+    returned. Also, a similarity score will be returned per attribute.
+    If the model does NOT support this, it'll simply return a dummy value.
 
     Args:
-        output: The output of any given model
+        model: The model
+        inputs: The input to the model (image)
         args: The model arguments to identify the used model and desired saliency method
+        attr_labels: The attribute gt values, needed for APN
     Returns:
         pred: The final class predictions [B, C]
         scores: The per-attribute scores [B, A]
@@ -22,7 +25,11 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args):
     """
 
     if args.saliency_method == "attention":
-        preds, similarity_scores, attention_maps = model(inputs)
+        if args.model_name == "apn":
+            assert attr_labels is not None, "APN forward pass requires attribute labels"
+            preds, similarity_scores, attention_maps = model(inputs, attr_labels)
+        else:
+            preds, similarity_scores, attention_maps = model(inputs)
         if args.concept_mapper != "protomod":
             raise ValueError(
                 f"Saliency method attention was selected, but concept_mapper is {args.concept_mapper}, must be protomod!"
