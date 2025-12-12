@@ -98,8 +98,8 @@ def plot_threshold_curve(thresholds, accs, save_path="", label_area=True):
     plt.figure(figsize=(8, 5))
     plt.plot(thresholds, accuracies, marker='o')
     plt.xlabel("Threshold")
-    plt.ylabel("Accuracy")
-    plt.title("Threshold–Accuracy Tradeoff Curve")
+    plt.ylabel("mIoU")
+    plt.title("Threshold-mIoU Tradeoff Curve")
 
     # Annotate AUC on plot
     plt.text(
@@ -407,7 +407,7 @@ def visualise_part_segmentations(
     attribute_names,
     iou_scores,
     source_paths=None,
-    attributes=10,
+    attributes=100,
     batch_idx=None,
     t_mean=(0.5, 0.5, 0.5),
     t_std=(2, 2, 2),
@@ -481,5 +481,6 @@ def visualise_part_segmentations(
     # Create string for this img
     attr_str = "_".join([str(a) for a in attributes])
     plt.tight_layout()
-    plt.savefig(os.path.join(save_path, f"{img_name}_attr{attr_str}.png"), dpi=200, bbox_inches='tight')
+    #plt.savefig(os.path.join(save_path, f"{img_name}_attr{attr_str}.png"), dpi=200, bbox_inches='tight')
+    plt.savefig(os.path.join(save_path, f"{img_name}_attr.png"), dpi=200, bbox_inches='tight')
     plt.close()

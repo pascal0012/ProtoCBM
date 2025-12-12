@@ -19,7 +19,8 @@ from localization.visualise import (
 from localization.localization_accuracy import (
     calculate_average_partwise_localization_accuracy, 
     compute_localization_accuracy, 
-    calculate_average_partwise_localization_distance
+    calculate_average_partwise_localization_distance,
+    compute_localization_accuracy_without_argmaxing
 )
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
@@ -87,22 +88,34 @@ def eval(args):
             attr_acc = binary_accuracy(scores, attr_labels)
             attr_acc_meter.update(attr_acc, pred.size(0))
             
-            # Compute localization accuracy and collect into our collector
-            predicted_coords, dists, resized_heatmaps, max_scores_per_part = compute_localization_accuracy(
-                                                                                                    scores,
-                                                                                                    saliency_maps,
-                                                                                                    part_bbs,
-                                                                                                    part_gts,
-                                                                                                    loader.dataset.part_dict,
-                                                                                                    loader.dataset.map_part_to_attr_loc_acc,
-                                                                                                    loc_acc_collector,
-                                                                                                    img_size=img_size
-                                                                                                    )
+            if args.use_argmax:
+                # Compute localization accuracy and collect into our collector
+                predicted_coords, dists, resized_heatmaps, max_scores_per_part = compute_localization_accuracy(
+                                                                                                        scores,
+                                                                                                        saliency_maps,
+                                                                                                        part_bbs,
+                                                                                                        part_gts,
+                                                                                                        loader.dataset.part_dict,
+                                                                                                        loader.dataset.map_part_to_attr_loc_acc,
+                                                                                                        loc_acc_collector,
+                                                                                                        img_size=img_size
+                                                                                                        )
+            else:
+                predicted_coords, dists, resized_heatmaps, max_scores_per_part = compute_localization_accuracy_without_argmaxing(
+                                                                                                        scores,
+                                                                                                        saliency_maps,
+                                                                                                        part_bbs,
+                                                                                                        part_gts,
+                                                                                                        loader.dataset.part_dict,
+                                                                                                        loader.dataset.map_part_to_attr_loc_acc,
+                                                                                                        loc_acc_collector,
+                                                                                                        img_size=img_size
+                                                                                                        )
 
             # Compute IoU between part segmentation masks and our saliency maps, for each attribute
             # Map out unmapped attributes from the saliency mask
             iou_scores, spr, cpr, saliency_maps_upsampled, seg_masks_per_attribute = compute_IoU_to_seg_masks(
-                saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group
+                saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, scores[:, unmatched_attr_mask]
             )
             seg_loc_meter.update(spr, cpr)
 
@@ -112,7 +125,7 @@ def eval(args):
                     # Compute IoU between part segmentation masks and our saliency maps, for each attribute
                     # Map out unmapped attributes from the saliency mask
                     _, tspr, tcpr, _, _ = compute_IoU_to_seg_masks(
-                        saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, keep_threshold=t
+                        saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, scores, keep_threshold=t
                     )
 
                     threshold_ious[i] += tspr
