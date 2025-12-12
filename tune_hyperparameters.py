@@ -20,7 +20,7 @@ def objective(args: Namespace, trial: optuna.Trial):
     # args.scheduler_step = trial.suggest_categorical( # type: ignore
     #     "scheduler_step", [10, 15, 20, 1000]
     # )
-    args.weight_decay = trial.suggest_categorical("weight_decay", [0.0004, 0.00004])  # type: ignore
+    # args.weight_decay = trial.suggest_categorical("weight_decay", [0.0004, 0.00004])  # type: ignore
 
     # ProtoMod specific properties
     args.proto_n_vectors = trial.suggest_int("proto_n_vectors", 1, 10)  # type: ignore
@@ -28,24 +28,24 @@ def objective(args: Namespace, trial: optuna.Trial):
 
     # Weighting of loss terms
     args.loss_weight_attribute_reg = trial.suggest_float( # type: ignore
-        "loss_weight_attribute_reg", 1e-6, 1, log=True
+        "loss_weight_attribute_reg", 1e-4, 5, log=True
     )  
-    args.loss_weight_map_compactness = trial.suggest_float("loss_weight_map_compactness", 1e-9, 1e-1, log=True) # type: ignore
-    args.loss_weight_attribute_decorrelation = trial.suggest_float("loss_weight_attribute_decorrelation", 1e-6, 1e-1) # type: ignore
+    args.loss_weight_map_compactness = trial.suggest_float("loss_weight_map_compactness", 1e-4, 2, log=True) # type: ignore
+    args.loss_weight_attribute_decorrelation = trial.suggest_float("loss_weight_attribute_decorrelation", 1e-6, 2) # type: ignore
 
     model = ModelXtoCtoY(args)
 
-    metric, part_seg_iou = train(model, args)
-
-    if args.use_localization.metric:
-        return part_seg_iou
-    return metric
+    best_val_metric, val_class_acc_meter, val_attr_acc_meter = train(model, args)
+    print(f"Best val metric: {best_val_metric.item():.4f}")
+    print(f"Final class accuracy: {val_class_acc_meter.item():.4f}")
+    print(f"Final attribute accuracy: {val_attr_acc_meter.item():.4f}")
+    return best_val_metric
 
 
 if __name__ == "__main__":
     args = gather_args()
     args.use_localization_metric = False
-    study = optuna.create_study(direction="maximize" if args.use_localization_metric else "minimize")
+    study = optuna.create_study(direction="maximize")
     study.optimize(lambda trial: objective(args, trial), n_trials=50)
 
     print("Best:", study.best_trial.params)

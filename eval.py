@@ -8,7 +8,7 @@ import torch
 from tqdm import tqdm
 import numpy as np
 
-from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics, create_mapping_attributes_to_part_seg_group
+from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics
 from localization.visualise import (
     create_attribute_mosaic, 
     visualise_part_segmentations, 
@@ -19,16 +19,13 @@ from localization.visualise import (
 from localization.localization_accuracy import (
     calculate_average_partwise_localization_accuracy, 
     compute_localization_accuracy, 
-    create_part_attribute_mapping_tensor,
     calculate_average_partwise_localization_distance
 )
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
-from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS, MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS
-from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
-from utils_protocbm.eval_utils import get_localization_loader
-from utils_protocbm.train_utils import accuracy, prepare_model, model_by_mode, gather_args
-from utils_protocbm.perf import Timer
+from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS
+from utils_protocbm.eval_utils import LocalizationMeter, get_localization_loader
+from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, prepare_model, model_by_mode, gather_args
 
 
 def create_model(args):
@@ -55,50 +52,40 @@ def eval(args):
 
     # Get the localization data loader and additional transform statistics
     loader, transform_mean, transform_std, img_size = get_localization_loader(model, args.data_dir, args.split_dir, args)
+    map_attr_id_to_part_seg_group = loader.dataset.map_attr_id_to_part_seg_group
+    attribute_names = loader.dataset.attribute_names
+    unmatched_attr_mask = loader.dataset.unmatched_attr_mask
 
-    # Creates a mapping tensor of attribute ids to their respective part segmentation group removes unmatched entries, returns kept attribute names
-    map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = create_mapping_attributes_to_part_seg_group(
-        args.data_dir,
-        device,
-        only_cbm_attributes = "cbm" in args.model_name  # Keep all CUB attributes or use only those as used by CBM?
-    )
-
-    # Create a mapping tensor for the localization accuracy as well
+    # Collecting metric values across batches for proper mean
+    seg_loc_meter = LocalizationMeter(attribute_names, device)
     loc_acc_collector = []
-    if "cbm" in args.model_name:
-        map_parts_to_attributes = map_attribute_ids_from_cub_to_cbm(MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS)
-    elif "apn" in args.model_name:
-        map_parts_to_attributes = MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS
-    else:
-        raise Exception("Unhandled model name for mapping")
-
-    map_part_to_attr_loc_acc = create_part_attribute_mapping_tensor(map_parts_to_attributes, device)
-
-    # Collecting IoU and accuracy values across batches for proper mean
-    iou_sum_per_attr = torch.zeros(len(attribute_names), device=device)
-    iou_count_per_attr = torch.zeros(len(attribute_names), device=device)
-    acc_sum = 0
-    acc_count = 0
+    class_acc_meter = AverageMeter()
+    attr_acc_meter = AverageMeter()
 
     thresholds = np.arange(0, 1.05, 0.05)
     threshold_ious = torch.zeros((len(thresholds), len(attribute_names)), device=device)
     threshold_counts = torch.zeros((len(thresholds), len(attribute_names)), device=device)
 
     with torch.no_grad():
-        for data_idx, data in enumerate(tqdm(loader, desc="Evaluating batches:")):
+        for data_idx, data in enumerate(tqdm(loader, desc="Evaluating batches")):
             # Cast data to device
             data = [v.to(device) if torch.is_tensor(v) else v for v in data]
 
             inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts = data
-            attr_labels = torch.stack(attr_labels).t()  # N x A
+            # attr_labels = torch.stack(attr_labels).t()  # N x A
+            attr_labels = torch.stack(attr_labels, dim=1).float().to(device)
 
             # Pass through model, get model prediction and saliency map per attribute
             pred, scores, saliency_maps = get_saliency_map_and_scores_and_prediction(model, inputs, args)
             saliency_maps = saliency_maps.to(device)
-            
-            # Compute classification accuracy
-            acc_sum += accuracy(pred, labels, topk=(1,))[0]
-            acc_count += 1
+
+            # Calculate classification accuracy
+            class_acc = accuracy(pred, labels, topk=(1,)) 
+            class_acc_meter.update(class_acc[0], pred.size(0))
+
+            # Calculate attribute accuracy
+            attr_acc = binary_accuracy(scores, attr_labels)
+            attr_acc_meter.update(attr_acc, pred.size(0))
             
             # Compute localization accuracy and collect into our collector
             predicted_coords, dists, resized_heatmaps, max_scores_per_part = compute_localization_accuracy(
@@ -107,29 +94,17 @@ def eval(args):
                                                                                                     part_bbs,
                                                                                                     part_gts,
                                                                                                     loader.dataset.part_dict,
-                                                                                                    map_part_to_attr_loc_acc,
+                                                                                                    loader.dataset.map_part_to_attr_loc_acc,
                                                                                                     loc_acc_collector,
                                                                                                     img_size=img_size
                                                                                                     )
-            
-            """loc_optimal_masks_batch, _, loc_ious, loc_resized_heatmaps, max_scores_per_part = compute_localization_accuracy(
-                                                                                                    scores,
-                                                                                                    saliency_maps,
-                                                                                                    part_bbs,
-                                                                                                    part_gts,
-                                                                                                    loader.dataset.part_dict,
-                                                                                                    map_part_to_attr_loc_acc,
-                                                                                                    loc_acc_collector,
-                                                                                                    img_size=img_size
-                                                                                                )"""
 
             # Compute IoU between part segmentation masks and our saliency maps, for each attribute
             # Map out unmapped attributes from the saliency mask
             iou_scores, spr, cpr, saliency_maps_upsampled, seg_masks_per_attribute = compute_IoU_to_seg_masks(
                 saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group
             )
-            iou_sum_per_attr += spr
-            iou_count_per_attr += cpr
+            seg_loc_meter.update(spr, cpr)
 
             if args.plot_curve:
                 #--- compute curve stats ---
@@ -143,8 +118,6 @@ def eval(args):
                     threshold_ious[i] += tspr
                     threshold_counts[i] += tcpr
                 #------
-            if data_idx > 1:
-                break
 
             # Visualise part segmentations with saliency
             if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
@@ -166,48 +139,23 @@ def eval(args):
                                              save_path=args.out_dir_part_seg
                 )
 
-                """visualise_localization_acc_boxes(
-                    inputs,
-                    source_paths,
-                    part_gts,
-                    loc_resized_heatmaps,
-                    loc_optimal_masks_batch,
-                    part_bbs,
-                    max_scores_per_part,
-                    data_idx,
-                    loc_ious,
-                    list(loader.dataset.part_dict.values()),
-		            t_mean=transform_mean,
-                    t_std=transform_std,
-                    save_path=args.out_dir_part_seg
-                )"""
+    # Compute statistics over all batches
+    seg_loc_meter.compute(map_attr_id_to_part_seg_group, verbose=True)
 
-    # Compute mIoU statistics for part segmentations
-    compute_mIoU_statistics(iou_sum_per_attr, iou_count_per_attr, attribute_names, map_attr_id_to_part_seg_group)
-
-    #print(threshold_ious[10])
-    #print(threshold_counts[10])
-    #for i in range(len(threshold_counts)):
-    #    print(threshold_counts[i].sum())
-    #    print(threshold_ious[i].sum())
     if args.plot_curve:
         #stats for curve
         threshold_accs = [compute_mIoU_statistics(threshold_ious[i], threshold_counts[i], attribute_names, map_attr_id_to_part_seg_group, verbose=False) for i in range(len(thresholds))]
-
-        #print("plotting Threshold curve")
-        #viz curve
         plot_threshold_curve(thresholds, threshold_accs, args.out_dir_part_seg)
 
 
     # Compute part localization statistics, considering our grouping of attributes to groups.
     #calculate_average_partwise_localization_accuracy(loc_acc_collector, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS, IoU_thr=args.IoU_threshold)
-
     calculate_average_partwise_localization_distance(loc_acc_collector, MAP_RESULT_GROUPS_TO_CUB_GROUPS)
 
-    # Compute mean classification accuracy and print
-    mean_acc = acc_sum / (acc_count + 1e-7)
-    print("\n--------- CLASSIFICATION ACCURACY ---------\n")
-    print(f"Mean Classification Accuracy: {mean_acc.item():.4f}")
+    # Compute mean classification and attribute accuracies and print
+    print("\n--------- ACCURACIES ---------\n")
+    print(f"Mean Classification Accuracy: {class_acc_meter.avg.item():.4f}")
+    print(f"Mean Attribute Accuracy: {attr_acc_meter.avg.item():.4f}")
 
 
 if __name__ == '__main__':

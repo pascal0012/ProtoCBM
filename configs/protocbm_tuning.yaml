@@ -7,18 +7,19 @@ concept_activation: none    # "relu" or "sigmoid"
 
 saliency_method: attention
 IoU_threshold: 0.5
+val_metric:   # Options: [class_acc, concept_acc, seg_iou, dist_loc], multiple can be combined.
+  - dist_loc
 
-log_dir: outputs/ProtoCBM
 image_dir: data/CUB_200_2011/images
 data_dir: data/CUB_processed/class_attr_data_10
 checkpoint: ""
 seed: 1
 
-epochs: 50
+epochs: 75
 batch_size: 64
-lr: 0.01
+lr: 0.001
 optimizer: sgd
-scheduler_step: 1000
+scheduler_step: 20
 weight_decay: 0.00004
 use_aux: true
 

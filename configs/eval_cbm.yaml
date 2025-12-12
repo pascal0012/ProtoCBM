@@ -7,6 +7,7 @@ concept_activation: none    # "relu" or "sigmoid"
 
 saliency_method: cam
 IoU_threshold: 0.5
+plot_curve: false
 
 log_dir: outputs/CBM
 data_dir: data/CUB_200_2011

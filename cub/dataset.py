@@ -13,7 +13,11 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
+from localization.part_seg_iou import create_mapping_attributes_to_part_seg_group
+from localization.localization_accuracy import create_part_attribute_mapping_tensor
 from utils_protocbm.mappings import PART_SEG_GROUPS
+from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
+from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS
 from cub.config import BASE_DIR, N_ATTRIBUTES
 
 
@@ -88,7 +92,7 @@ class CUBDataset(Dataset):
 
 class CUBLocalizationDataset(Dataset):
 
-    def __init__(self, pkl_path, data_dir, img_size, transform, mask_transform):
+    def __init__(self, pkl_path, data_dir, img_size, transform, mask_transform, cbm_attributes=True):
         """
         Args:
             pkl_path: Full path to test or validation pkl
@@ -96,6 +100,7 @@ class CUBLocalizationDataset(Dataset):
             img_size: The image size, assumes quadratic images
             transform: Transform to apply to the image.
             mask_transform: The transformation to apply to the segmentation masks. The spatial transforms must match that of the image transform.
+            cbm_attributes: Whether we use cbm-based attributes.
         """
 
         # Load pickled data
@@ -120,10 +125,27 @@ class CUBLocalizationDataset(Dataset):
         self.bird_BB_path = os.path.join(self.data_dir, "bounding_boxes.txt")
         self._create_localization_accuracy_dicts()
 
+        # Create mappings for part segmentations:
+        # Mapping tensor of attribute ids to their respective part segmentation group removes unmatched entries, returns kept attribute names
+        map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = (
+            create_mapping_attributes_to_part_seg_group(
+                data_dir, "cuda" if torch.cuda.is_available() else "cpu", only_cbm_attributes=True
+            )
+        )
+        self.map_attr_id_to_part_seg_group = map_attr_id_to_part_seg_group
+        self.attribute_names = attribute_names
+        self.unmatched_attr_mask = unmatched_attr_mask
+
+        # Create a mapping tensor for the localization accuracy as well
+        if cbm_attributes:
+            map_parts_to_attributes = map_attribute_ids_from_cub_to_cbm(MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS)
+        else:
+            map_parts_to_attributes = MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS
+        self.map_part_to_attr_loc_acc = create_part_attribute_mapping_tensor(map_parts_to_attributes, "cuda" if torch.cuda.is_available() else "cpu")
+
         #done like this in case we dont hardcode transformations later
         self.center_crop_size = None
         self.resize_size = None
-
         for t in transform.transforms:
             if isinstance(t, transforms.CenterCrop):
                 self.center_crop_size = t.size

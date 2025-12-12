@@ -231,7 +231,7 @@ def calculate_average_partwise_localization_accuracy(all_ious:list[dict], subgro
     return res, mean_iou_acc
 
 
-def calculate_average_partwise_localization_distance(all_distances:list[dict], subgroup_mapping:dict):
+def calculate_average_partwise_localization_distance(all_distances:list[dict], subgroup_mapping:dict, verbose=True):
     #compute acc with ious and threshold for all images per part
     #all ious = list with each item having a matching from part to iou
 
@@ -273,11 +273,12 @@ def calculate_average_partwise_localization_distance(all_distances:list[dict], s
     mean_dist = [x for _, x in res.items() if x != -1]
     mean_dist = sum(mean_dist)/len(mean_dist)
 
-    print("\n--------- LOCALIZATION DISTANCE ---------\n")
+    if verbose:
+        print("\n--------- LOCALIZATION DISTANCE ---------\n")
 
-    for group_name, acc in res.items():
-        print(f"Group {group_name} - LocDist: {acc:.4f}")
-    print(f"\nMean LocDist: {mean_dist:.4f}")
+        for group_name, acc in res.items():
+            print(f"Group {group_name} - LocDist: {acc:.4f}")
+        print(f"\nMean LocDist: {mean_dist:.4f}")
 
     return res, mean_dist
 

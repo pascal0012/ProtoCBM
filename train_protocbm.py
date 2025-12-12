@@ -10,12 +10,18 @@ from torch import nn
 
 from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
-from localization.part_seg_iou import create_mapping_attributes_to_part_seg_group
+from localization.localization_accuracy import (
+    compute_localization_accuracy, 
+    calculate_average_partwise_localization_distance
+)
 from losses import ProtoModLoss
+from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.eval_utils import (
+    LocalizationMeter,
     eval_part_segmentation_iou,
     get_localization_loader,
 )
+from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS
 from utils_protocbm.train_utils import (
     AverageMeter,
     LossMeter,
@@ -27,6 +33,7 @@ from utils_protocbm.train_utils import (
     optimizer_and_scheduler_by_name,
     prepare_model,
 )
+
 
 # TODO
 loss_labels = [
@@ -49,6 +56,8 @@ def epoch_wrapper(
     cross_entropy: nn.CrossEntropyLoss,
     protomod_criterion: ProtoModLoss,
 ):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     loss_meter = LossMeter(loss_labels)
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
@@ -57,20 +66,21 @@ def epoch_wrapper(
         model.train()
     else:
         model.eval()
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+        if any(req in args.val_metric for req in ["seg_iou", "dist_loc"]):
+            loc_meter = LocalizationMeter(dataloader.dataset.attribute_names, device)
+            loc_acc_meter = []
 
     for batch in dataloader:
-        inputs, labels, attr_labels = batch
+
+        batch = [v.to(device) if torch.is_tensor(v) else v for v in batch]
+
+        if not is_training and any(req in args.val_metric for req in ["seg_iou", "dist_loc"]):
+            inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts = batch
+        else:
+            inputs, labels, attr_labels = batch
 
         # TODO: Move to collate_fn
-        attr_labels = torch.stack(attr_labels, dim=1).float()
-
-        inputs, labels, attr_labels = (
-            inputs.to(device),
-            labels.to(device),
-            attr_labels.to(device),
-        )
+        attr_labels = torch.stack(attr_labels, dim=1).float().to(device)
 
         losses = []
 
@@ -133,6 +143,22 @@ def epoch_wrapper(
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=7.0)
             optimizer.step()
+        else:
+            # Compute metrics based on provided string(s)
+            if 'seg_loc' in args.val_metric:
+                loc_meter.update(
+                    eval_part_segmentation_iou(
+                        attention_maps,
+                        part_seg_masks,
+                        dataloader.dataset.map_attr_id_to_part_seg_group,
+                        dataloader.dataset.unmatched_attr_mask
+                    )
+                )
+            if 'dist_loc' in args.val_metric: 
+                compute_localization_accuracy(
+                    similarity_scores, attention_maps, part_bbs, part_gts, dataloader.dataset.part_dict,
+                    dataloader.dataset.map_part_to_attr_loc_acc, loc_acc_meter, img_size=inputs.shape[-1]
+                )
 
     for i in range(loss_meter.n_losses):
         tb_writer.add_scalar(
@@ -140,13 +166,34 @@ def epoch_wrapper(
             loss_meter.avg[i],
             epoch,
         )
-
-    # Using a joint criterion
+    
+    # Metric(s) used to evaluate overall quality of model during validation
+    # IMPORTANT: Must be maximized! So if any metric is minimize->better, invert it.
+    val_metric = torch.tensor(0.0)
+    if not is_training:
+        for val_metric_str in args.val_metric:
+            if val_metric_str == "class_acc":      # --- Class accuracy
+                val_metric += class_acc_meter.avg
+            if val_metric_str == "concept_acc":  # --- Concept accuracy
+                val_metric += attr_acc_meter.avg
+            if val_metric_str == "seg_iou":  # --- Segmentation IoU
+                val_metric += loc_meter.compute(dataloader.dataset.map_attr_id_to_part_seg_group)
+            if val_metric_str == "dist_loc": # --- Localization distance
+                val_metric += torch.tensor(
+                    -calculate_average_partwise_localization_distance(loc_acc_meter, MAP_RESULT_GROUPS_TO_CUB_GROUPS, verbose=False)[1]
+                )
+    
+        tb_writer.add_scalar(
+            "Val/Metric",
+            val_metric,
+            epoch,
+        )
+    
     return (
         loss_meter,
         class_acc_meter,
         attr_acc_meter,
-        -attr_acc_meter.avg - class_acc_meter.avg,
+        val_metric,
     )
 
 
@@ -157,14 +204,21 @@ def train(model: nn.Module, args: Namespace) -> float:
 
     optimizer, scheduler = optimizer_and_scheduler_by_name(model, args)
 
-    # TODO: Add checkpoints
     train_loader = load_data(args, "train")
-    val_loader = load_data(args, "val")
+    
+    if any(req in args.val_metric for req in ["seg_iou", "dist_loc"]):
+        # TODO: Make data dirs uniform across all datasets / configs, hacky fix here
+        tmp_data_dir = os.path.join(BASE_DIR, "/".join(args.image_dir.split("/")[:-1]))
+        tmp_split_dir = os.path.join(BASE_DIR, args.data_dir, "val.pkl")
+
+        # Get necessary data for localization, see eval.py or documentation for details
+        val_loader, _, _, _ = get_localization_loader(model, tmp_data_dir, tmp_split_dir, args)
+    else:
+        val_loader = load_data(args, "val")
 
     cross_entropy, protomod_criterion = create_criterions(model, args)
 
-    best_val_epoch, best_val_metric = -1, math.inf
-    best_val_acc = 0
+    best_val_epoch, best_val_metric = -1, -math.inf
 
     scheduler_stop_epoch = (
         int(math.log(MIN_LR / args.lr) / math.log(LR_DECAY_SIZE)) * args.scheduler_step
@@ -203,15 +257,10 @@ def train(model: nn.Module, args: Namespace) -> float:
                 )
             )
 
-        # NOTE: We are minimizing val_metric (ACCURACY NEEDS TO BE INVERTED)
-        metric_criterion = val_metric < best_val_metric
-        acc_criterion = val_class_acc_meter.avg > best_val_acc
-        if metric_criterion or acc_criterion:
+        # We are maximizing metric_criterion!
+        if val_metric > best_val_metric:
             best_val_epoch = epoch
-            if metric_criterion:
-                best_val_metric = val_metric
-            if acc_criterion:
-                best_val_acc = val_class_acc_meter.avg
+            best_val_metric = val_metric
 
             logger.write("New model best model at epoch %d" % epoch)
             torch.save(
@@ -228,50 +277,22 @@ def train(model: nn.Module, args: Namespace) -> float:
             f"Val/loss: {[f'{type}: {loss:.4f}' for type, loss in zip(loss_labels, val_loss_meter.avg)]}",
             f"Val/Class acc: {val_class_acc_meter.avg.item():.4f}",
             f"Val/Attr acc: {val_attr_acc_meter.avg.item():.4f}",
+            f"Val/Metric: {val_metric.item():.4f}",
             f"Best val epoch: {best_val_epoch}",
             f"Time: {time.time() - start_time:.2f} sec",
             f"LR: {scheduler.get_lr()[0]:.6f}",
         ]
-        # if args.compute_localization:
-        #    logger_lst.append(f"Val/PartSegLocalizationIoU: {part_seg_iou}")
         logger.write(" - ".join(logger_lst))
         logger.flush()
 
         if epoch <= scheduler_stop_epoch:
             scheduler.step()
-
-        if epoch >= 100 and val_class_acc_meter.avg < 3:
-            logger.write("Early stopping because of low accuracy")
-            break
         if epoch - best_val_epoch >= 100:
-            logger.write("Early stopping because acc hasn't improved for a long time")
+            logger.write("Early stopping because validation metric hasn't improved for a long time")
             break
 
     logger.close()
-
-    # Compute the part segmentation IoU, globally across all groups / attributes.
-    # TODO: Make data dirs uniform across all datasets / configs, hacky fix here
-    tmp_data_dir = os.path.join(BASE_DIR, "/".join(args.image_dir.split("/")[:-1]))
-    tmp_split_dir = os.path.join(BASE_DIR, args.data_dir, "val.pkl")
-
-    # Get necessary data for localization, see eval.py or documentation for details
-    loader, _, _, _ = get_localization_loader(model, tmp_data_dir, tmp_split_dir, args)
-    map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_mask = (
-        create_mapping_attributes_to_part_seg_group(
-            tmp_data_dir, device, only_cbm_attributes=True
-        )
-    )
-
-    # Compute part segmentation IoU
-    part_seg_iou = eval_part_segmentation_iou(
-        model,
-        loader,
-        attribute_names,
-        map_attr_id_to_part_seg_group,
-        unmatched_attr_mask,
-        args,
-    )
-    return val_metric, part_seg_iou
+    return best_val_metric, val_class_acc_meter.avg, val_attr_acc_meter.avg
 
 
 if __name__ == "__main__":

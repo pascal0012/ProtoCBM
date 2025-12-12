@@ -7,6 +7,7 @@ concept_activation: none    # "relu" or "sigmoid"
 
 saliency_method: attention
 IoU_threshold: 0.5
+plot_curve: false
 
 log_dir: outputs/ProtoCBM
 data_dir: data/CUB_200_2011
@@ -22,4 +23,4 @@ backbone_pretrained: true
 backbone_freeze: false
 expand_dim: 0
 
-proto_n_vectors: 1
+proto_n_vectors: 4
