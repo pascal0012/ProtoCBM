@@ -31,7 +31,7 @@ def objective(args: Namespace, trial: optuna.Trial):
         "loss_weight_attribute_reg", 1e-4, 5, log=True
     )  
     args.loss_weight_map_compactness = trial.suggest_float("loss_weight_map_compactness", 1e-4, 2, log=True) # type: ignore
-    args.loss_weight_attribute_decorrelation = trial.suggest_float("loss_weight_attribute_decorrelation", 1e-6, 2) # type: ignore
+    args.loss_weight_attribute_decorrelation = trial.suggest_float("loss_weight_attribute_decorrelation", 1e-5, 2) # type: ignore
 
     model = ModelXtoCtoY(args)
 
