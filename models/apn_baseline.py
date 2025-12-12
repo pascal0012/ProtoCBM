@@ -55,7 +55,7 @@ class resnet_proto_IoU(nn.Module):
         self.ALE_vector = nn.Parameter(2e-4 * torch.rand([312, 2048, 1, 1]), requires_grad=True)
         self.avg_pool = avg_pool
 
-    def forward(self, x, return_map=False):
+    def forward(self, x, attribute, return_map=False):
         """out: predict class, predict attributes, maps, out_feature"""
         record_features = {}
         batch_size = x.size(0)
@@ -68,19 +68,15 @@ class resnet_proto_IoU(nn.Module):
         x = self.resnet[7](x)  # layer 4
         record_features['layer4'] = x  # [64, 2048, 7, 7]
 
-        attention = dict()
-        pre_attri = dict()
-        pre_class = dict()
 
         if self.avg_pool:
-            pre_attri['final'] = F.avg_pool2d(F.conv2d(input=x, weight=self.ALE_vector), kernel_size=7).view(batch_size, -1)
+            global_branch_out = F.avg_pool2d(F.conv2d(input=x, weight=self.ALE_vector), kernel_size=7).view(batch_size, -1)
         else:
-            pre_attri['final'] = F.max_pool2d(F.conv2d(input=x, weight=self.ALE_vector), kernel_size=7).view(batch_size, -1)
-        output_final = self.softmax(pre_attri['final'])
+            global_branch_out = F.max_pool2d(F.conv2d(input=x, weight=self.ALE_vector), kernel_size=7).view(batch_size, -1)
         name = self.extract[-1]
         attention = F.conv2d(input=record_features[name], weight=self.prototype_vectors[name])  # [64, 312, W, H]
         pre_attri = F.max_pool2d(attention, kernel_size=self.kernel_size[name]).view(batch_size, -1)
-        # pre_class = self.softmax(pre_attri[name].mm(attribute))
+        output_final = self.softmax(global_branch_out.mm(attribute.T))
         return output_final, pre_attri, attention
 
     def fine_tune(self, fine_tune=True):
@@ -99,5 +95,4 @@ class resnet_proto_IoU(nn.Module):
 
 def load_apn_baseline(args, train=False):
     model = resnet_proto_IoU(args.backbone_dir, train=train)
-    print("Any operations on the classification output of APN is invalid (e.g. accuracy computation)!")
     return model

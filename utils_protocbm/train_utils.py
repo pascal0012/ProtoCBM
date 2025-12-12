@@ -31,6 +31,7 @@ def prepare_model(
             else os.path.join(args.log_dir, f"best_model_{args.seed}.pth")
         )
         state_dict = torch.load(path_to_weights)
+        print(state_dict.keys())
 
         # Compatibilty with prior runs that saved the model fully and not only the state dict
         if hasattr(state_dict, 'state_dict'):
@@ -350,6 +351,12 @@ def gather_args():
     with open(cli_args.config) as f:
         args = yaml.safe_load(f)
     args = normalize_scientific_floats(args)
+
+    # If val_metric is only one entry
+    if "val_metric" in args.keys():
+        val_metrics = args["val_metric"]
+        if isinstance(val_metrics, str):
+            args["val_metric"] = [val_metrics]
 
     # Add run name, keep as namespace to be able to access like args.param
     args = Namespace(**args, config_path=cli_args.config)

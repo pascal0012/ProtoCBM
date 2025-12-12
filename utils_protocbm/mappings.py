@@ -57,6 +57,22 @@ MAP_PART_SEG_GROUPS_TO_CUB_GROUPS = {
 }
 
 
+MAP_RESULT_GROUPS_TO_CUB_GROUPS = {
+    'eye': ["left eye", "right eye"],
+    'neck': ["nape"],
+    'beak': ["beak"],
+    'back': ["back"],
+    "belly": ["belly"],
+    "breast": ["breast"],
+    "throat": ["throat"],
+    'head': ["crown"],
+    "forehead": ["forehead"],
+    'tail': ["tail"],
+    'wing': ["left wing", "right wing"],
+    'leg': ["left leg", "right leg"],
+}
+
+
 MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS = {
     'left eye': [100, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148],
     'right eye': [100, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148],

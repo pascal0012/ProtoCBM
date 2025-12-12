@@ -118,7 +118,7 @@ def create_mapping_attributes_to_part_seg_group(data_dir, device, only_cbm_attri
     return map_attr_id_to_part_seg_group, attribute_names, unmatched_attr_id_mask
 
 
-def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.Tensor, map_attr_id_to_part_seg_group: torch.Tensor, hard_iou=True):
+def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.Tensor, map_attr_id_to_part_seg_group: torch.Tensor, scores: torch.Tensor, hard_iou=True, keep_threshold=0.5):
     """
         Given a saliency map per attribute of any model and the corresponding part segmentation mask for that attribute, we compute the IoU
         between them. The saliency map does not have to have the same shape as the part segmentation masks, this method resizes them to
@@ -128,6 +128,7 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
             saliency_maps: The saliency maps for each attribute generated for our model output of shape [B, A, hs, ws]
             part_seg_maps: The corresponding segmentation maps, IMPORTANT: Per part seg group (G), is matched to attributes. [B, G, H, W], where H,W = img size
             map_attr_id_to_part_seg_group: The mapping of attribute IDs to the corresponding part segmentation group
+            scores: the pre attribute activation scores for argmaxing [B, A]
             hard_iou: Whether IoU is to be computed on binarized saliency maps (True) or not (False)
         Returns:
             iou_per_attr: The IoU per attribute, for each batch [B, A]
@@ -137,10 +138,39 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
             seg_masks_per_attribute: The segmentation masks, with each attribute being matched its proper part [B, A, H, W]
     """
     
+
     # For each of the attributes saliency map, get its respective group (and ID) and retrieve the segmentation mask for that group.
     _, _, H, W = part_seg_masks.shape
     group_idx = map_attr_id_to_part_seg_group.unsqueeze(0).expand(saliency_maps.shape[0], -1)  # Adapt to current batch size [B, A]
     group_idx = group_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, H, W)  # Adapt to part segmentation size [B,A,H,W]
+    
+    """
+    ##--- Argmaxing ---
+    #since we have attribute id to group lookup, we group by part_seg_group and then take argmax from these indices in the scores
+    groups = {}
+    for idx, g in enumerate(map_attr_id_to_part_seg_group):
+        groups.setdefault(int(g), []).append(idx)
+
+    # Convert lists back to tensors:
+    groups = {g: torch.tensor(idxs, device=scores.device) for g, idxs in groups.items()}
+
+    argmaxes = []
+
+    for idxs in groups.values():
+        # We want the index in the original A, so we map back:
+        local_argmax = scores[:, idxs].argmax(dim=1)
+        global_argmax = idxs[local_argmax]   # picks actual A-index
+        argmaxes.append(global_argmax)
+    argmaxes = torch.stack(argmaxes, dim=1)
+
+    argmax_mask = torch.zeros(scores.shape[0], scores.shape[1], dtype=torch.bool, device=scores.device)
+
+    # For each group g, turn its predicted attribute index into True
+    for g in groups.keys():
+        argmax_mask[torch.arange(scores.shape[0]), argmaxes[:, g]] = True
+    
+    #------
+    """
 
     # Gather segmentation mask for each attribute
     seg_masks_per_attribute = torch.gather(part_seg_masks, 1, group_idx)         # [B,A,H,W]
@@ -153,17 +183,23 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
 
     # Compute hard IoU on binarized attention masks
     if hard_iou:
-        binarized_saliency_maps = percentile_threshold_maps(saliency_maps).float()
+        binarized_saliency_maps = percentile_threshold_maps(saliency_maps, keep_threshold).float()
         binarized_saliency_maps_upsampled = F.interpolate(binarized_saliency_maps, size=(H, W), mode='nearest')
         iou_per_attr = compute_iou(binarized_saliency_maps_upsampled, seg_masks_per_attribute)  # [B, A]
     # Compute soft IoU
     else:
         iou_per_attr = compute_soft_iou(saliency_maps_upsampled, seg_masks_per_attribute) # [B, A]
 
+    #combine argmax mask and presence mask to have only attributes with segmentation mask presence AND that are argmaxed
+    #valid_attr_mask = argmax_mask & gt_presence_mask
+
     # Collect sum and count IoU for each attribute, mask out invalid entries
+    #iou_per_attr[~valid_attr_mask] = 0
     iou_per_attr[~gt_presence_mask] = 0 
     iou_sum_per_attr = iou_per_attr.sum(dim=0)  # Sum per attribute
-    iou_count_per_attr = gt_presence_mask.sum(dim=0)  # Count valid entries
+    #iou_count_per_attr = valid_attr_mask.sum(dim=0)  # Count valid entries
+    iou_count_per_attr = gt_presence_mask.sum(dim=0)
+    
     return iou_per_attr, iou_sum_per_attr, iou_count_per_attr, saliency_maps_upsampled, seg_masks_per_attribute
 
 
