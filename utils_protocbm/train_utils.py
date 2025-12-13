@@ -25,13 +25,15 @@ def prepare_model(
 ):
     # Load in weights, if any
     if load_weights:
-        path_to_weights = (
-            args.apn_weights_dir
-            if args.model_name == "apn"
-            else os.path.join(args.log_dir, f"best_model_{args.seed}.pth")
-        )
-        state_dict = torch.load(path_to_weights)
-        print(state_dict.keys())
+        if args.weight_dir:
+            state_dict = torch.load(args.weight_dir, weights_only=False)
+        else:
+            path_to_weights = (
+                args.apn_weights_dir
+                if args.model_name == "apn"
+                else os.path.join(args.log_dir, f"best_model_{args.seed}.pth")
+            )
+            state_dict = torch.load(path_to_weights)
 
         # Compatibilty with prior runs that saved the model fully and not only the state dict
         if hasattr(state_dict, 'state_dict'):
@@ -59,15 +61,15 @@ def prepare_model(
 
 
 def logger_and_summarywriter(args: Namespace):
-    os.makedirs(args.log_dir, exist_ok=True)
+    os.makedirs(os.path.join(args.log_dir, args.model_name), exist_ok=True)
 
     write_console = args.write_console if hasattr(args, "write_console") else True
-    logger = Logger(os.path.join(args.log_dir, "log.txt"), write_console=write_console)
+    logger = Logger(os.path.join(args.log_dir, args.model_name, "log.txt"), write_console=write_console)
     for k, v in vars(args).items():
         logger.write(f"{k}: {v}")
     logger.flush()
 
-    tb_writer = SummaryWriter(log_dir=os.path.join(args.log_dir, "tensorboard"))
+    tb_writer = SummaryWriter(log_dir=os.path.join(args.log_dir, args.model_name, "tensorboard"))
 
     return logger, tb_writer
 

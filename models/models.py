@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from models.backbones import Inception3, DINO
 from models.components import MLP
-from models.concept_mapper import CBMMapper, ProtoMod
+from models.concept_mapper import CBMMapper, ProtoMod, DebugAuxMapperCBM
 from models.model_connector import ModelConnector
 
 from cub.config import N_CLASSES
@@ -135,6 +135,9 @@ def concept_mapper_by_name(args: Namespace, input_channel_dim: int, is_aux: bool
     if args.concept_mapper == "protomod":
         return ProtoMod(channel_dim=input_channel_dim, num_vectors=args.proto_n_vectors)
     elif args.concept_mapper == "cbm":
-        return CBMMapper(input_channel_dim, args.expand_dim, is_aux)
+        if is_aux:
+            return DebugAuxMapperCBM(input_channel_dim, args.expand_dim)
+        else:
+            return CBMMapper(input_channel_dim, args.expand_dim, is_aux)
     else:
         raise ValueError(f"Unknown concept mapper name: {args.concept_mapper}")
