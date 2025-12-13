@@ -66,11 +66,38 @@ class CBMMapper(nn.Module):
         # Adaptive average pooling
         # N x C x 1 x 1
         x = F.adaptive_avg_pool2d(x, (1, 1)) 
-        if not self.is_aux:
-            x = F.dropout(x, training=self.training)
+        x = F.dropout(x, training=self.training)
 
         # N x C
         x = x.view(x.size(0), -1)
+        
+        out = []
+        for fc in self.all_fc:
+            out.append(fc(x))
+
+        return out
+ 
+
+
+class DebugAuxMapperCBM(nn.Module):
+    def __init__(self, channel_dim, expand_dim):
+        """
+            Args:
+                expand_dim: The dimensionality of the hidden layer MLP. If = 0, no extra hidden layer is inserted, but a direct mapping is cretated.
+        """
+        super(DebugAuxMapperCBM, self).__init__()
+
+        self.all_fc = nn.ModuleList()
+        for _ in range(N_ATTRIBUTES_CBM):
+            self.all_fc.append(FC(channel_dim, 1, expand_dim))
+
+
+    def forward(self, x):
+        """Given a feature map of shape [B, C, H , W], creates concepts from it."""
+        # Adaptive average pooling
+        # N x C x 1 x 1
+        x = F.adaptive_avg_pool2d(x, (1, 1)) 
+        x = x.view(x.size(0), -1) # N x C
         
         out = []
         for fc in self.all_fc:
