@@ -102,8 +102,6 @@ def eval(args):
             )
             seg_loc_meter.update(spr, cpr)
 
-            if data_idx > 5:
-                break
             # Compute curve statistics
             if args.plot_curve:
                 for i, t in enumerate(thresholds):

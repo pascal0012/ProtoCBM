@@ -175,6 +175,7 @@ class CUBLocalizationDataset(Dataset):
         # Get localization data, i.e. part segmentation masks and bounding box data
         part_seg_masks = self._get_part_seg_masks(img_path, class_label)
         part_bbs, part_gts = self._get_bounding_box_data(img_source_path, (og_img_w, og_img_h))
+        original_part_gt_mask = (part_gts == 0).all(dim=1)
 
         #uncomment this for resize adjustment
         if self.resize_size != None:
@@ -196,7 +197,7 @@ class CUBLocalizationDataset(Dataset):
             part_bbs = self._adjust_to_center_crop(part_bbs, og_img_w, og_img_h, self.center_crop_size)
             part_gts = self._adjust_gt_to_center_crop(part_gts, og_img_w, og_img_h, self.center_crop_size)
 
-
+        part_gts[original_part_gt_mask] = 0
         return img, class_label, attr_label, part_seg_masks, part_bbs, img_source_path, part_gts
 
     def resize_bounding_boxes(self, box_tensor, og_size, new_size):
