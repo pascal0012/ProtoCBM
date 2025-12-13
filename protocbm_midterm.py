@@ -4,9 +4,9 @@ from train_protocbm import train
 from utils_protocbm.train_utils import gather_args, model_by_mode
 
 # Model Type, Attribute Regression Loss, Attribute Decorrelation Loss, Map Compactness Loss
-attribute_reg_weight = 1
-attribute_decorrelation_weight = 1
-map_compactness_weight = 1
+attribute_reg_weight = 0.8886
+attribute_decorrelation_weight = 0.0088
+map_compactness_weight = 0.01
 
 run_configs = [
     {
@@ -47,9 +47,6 @@ run_configs = [
     {
         "id": "CY",
         "mode": "CY",
-        "loss_weight_attribute_reg": 0,
-        "loss_weight_attribute_decorrelation": 0,
-        "loss_weight_map_compactness": 0,
         "checkpoint": "outputs/ProtoCBM-MIDTERM/XC-3/best_model-1.pth",
     },
 ]
