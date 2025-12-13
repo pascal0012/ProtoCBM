@@ -497,10 +497,12 @@ def load_data(args, split: Literal["train", "val", "test"]):
         batch_size=args.batch_size, 
         shuffle=shuffle, 
         drop_last=drop_last,
-        num_workers=2,  # Multi-process data loading
+        num_workers=4,  # Multi-process data loading
         pin_memory=True,  # Faster GPU transfer
         persistent_workers=True,  # Keep workers alive between epochs
+        prefetch_factor=3,  # Add prefetching
     )
+    
     return loader
 
 
