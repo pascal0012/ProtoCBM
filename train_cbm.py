@@ -272,9 +272,10 @@ def run_epoch(
                 # cotraining, loss by class prediction and loss by attribute prediction have the same weight
                 attr_loss = sum(losses[1:])
                 if args.normalize_loss:
-                    attr_loss = attr_loss / (args.attr_loss_weight * args.n_attributes)
-
-                back_loss = losses[0] + attr_loss
+                    back_loss = losses[0] + attr_loss
+                    back_loss = back_loss / (1 + args.attr_loss_weight * args.n_attributes)
+                else:
+                    back_loss = losses[0] + attr_loss
                 
                 total_loss = (back_loss.detach(), attr_loss.detach())
         else:
@@ -408,19 +409,31 @@ def train(model: nn.Module, args: Namespace) -> float:
                     tb_writer=tb_writer,
                 )
 
-        if (best_val_acc < val_acc_meter.avg and not args.bottleneck) or (
-            best_val_acc < val_attr_acc_meter.avg and args.bottleneck
-        ):
-            best_val_epoch = epoch
-            best_val_acc = (
-                val_attr_acc_meter.avg if args.bottleneck else val_acc_meter.avg
-            )
+        if args.mode == "XCY":
+            current_val_score = val_attr_acc_meter.avg + val_acc_meter.avg
+            if best_val_acc < current_val_score:
+                best_val_epoch = epoch
+                best_val_acc = current_val_score
 
-            logger.write("New model best model at epoch %d\n" % epoch)
-            torch.save(
-                model.state_dict(),
-                os.path.join(args.log_dir, args.model_name, f"{model.name}_best_model_seed=%d.pth" % args.seed),
-            )
+                logger.write("New model best model at epoch %d\n" % epoch)
+                torch.save(
+                    model.state_dict(),
+                    os.path.join(args.log_dir, args.model_name, f"{model.name}_best_model_seed=%d.pth" % args.seed),
+                )
+        else:
+            if (best_val_acc < val_acc_meter.avg and not args.bottleneck) or (
+                best_val_acc < val_attr_acc_meter.avg and args.bottleneck
+            ):
+                best_val_epoch = epoch
+                best_val_acc = (
+                    val_attr_acc_meter.avg if args.bottleneck else val_acc_meter.avg
+                )
+
+                logger.write("New model best model at epoch %d\n" % epoch)
+                torch.save(
+                    model.state_dict(),
+                    os.path.join(args.log_dir, args.model_name, f"{model.name}_best_model_seed=%d.pth" % args.seed),
+                )
 
         train_loss_avg = train_loss_meter.avg
         val_loss_avg = val_loss_meter.avg
@@ -478,6 +491,7 @@ def train(model: nn.Module, args: Namespace) -> float:
         if epoch >= 100 and val_acc_meter.avg < 3:
             print("Early stopping because of low accuracy")
             break
+        
         if epoch - best_val_epoch >= 100:
             print("Early stopping because acc hasn't improved for a long time")
             break
