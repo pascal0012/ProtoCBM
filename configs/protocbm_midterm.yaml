@@ -23,5 +23,4 @@ backbone_freeze: false
 expand_dim: 0
 
 # ProtoCBM specifics
-proto_n_vectors: 1
 loss_decorrelation_per_group: true

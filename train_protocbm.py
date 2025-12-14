@@ -301,10 +301,4 @@ if __name__ == "__main__":
 
     model = model_by_mode(args)
 
-    if args.checkpoint != "":
-        model.load_state_dict(
-            torch.load(args.checkpoint, map_location="cpu"), strict=False
-        )
-        print("Continuing with checkpoint:", args.checkpoint)
-
     train(model, args)
