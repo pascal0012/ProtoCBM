@@ -34,6 +34,7 @@ def ModelXtoC(args: Namespace):
         concept_mapper,
         classifier,
         args.use_aux,
+        args.mode,
         args.concept_activation,
         concept_mapper_aux,
     )
@@ -65,6 +66,7 @@ def ModelCtoY(args: Namespace):
         concept_mapper,
         classifier,
         args.use_aux,
+        args.mode,
         args.concept_activation,
         concept_mapper_aux,
     )
@@ -92,6 +94,7 @@ def ModelXtoCtoY(args: Namespace):
         concept_mapper,
         classifier,
         args.use_aux,
+        args.mode,
         args.concept_activation,
         concept_mapper_aux,
     )

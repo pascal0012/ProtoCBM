@@ -19,6 +19,7 @@ class ModelConnector(nn.Module):
         concept_mapper: Optional[nn.Module], # wie ist das bitte optional?
         classifier: Optional[nn.Module] = None,
         use_aux: bool = False,
+        mode: Optional[str] = None,
         concept_activation: Optional[Literal["sigmoid", "relu"]] = None,
         aux_concept_mapper: Optional[nn.Module] = None,
     ):
@@ -28,6 +29,7 @@ class ModelConnector(nn.Module):
         self.aux_concept_mapper = aux_concept_mapper
         self.classifier = classifier
         self.use_aux = use_aux
+        self.mode = mode
 
         # Create activation function of concepts, if any
         if concept_activation == "sigmoid":
@@ -58,6 +60,8 @@ class ModelConnector(nn.Module):
 
         # take the feature vector and map to class logits
         cls_input = torch.cat(mapped_input, dim=1)
+        if self.mode == "CY":
+                cls_input = cls_input.detach()
         
         # [class_logits, attr1, attr2, ..., attrN]
         all_out = [self.classifier(cls_input)]
@@ -84,6 +88,8 @@ class ModelConnector(nn.Module):
 
         # C -> Y, if we have a classifier
         if self.classifier is not None:
+            if self.mode == "CY":
+                output = output.detach()
             output = self.classifier(output)
 
         return (output, sim_scores, maps) if not aux_forward else output

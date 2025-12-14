@@ -36,7 +36,7 @@ def prepare_model(
             state_dict = torch.load(path_to_weights)
 
         # Compatibilty with prior runs that saved the model fully and not only the state dict
-        if hasattr(state_dict, 'state_dict'):
+        if hasattr(state_dict, "state_dict"):
             state_dict = state_dict.state_dict()
 
         # Remove auxiliary logits and concept mapper, as it is not needed for inference
@@ -118,9 +118,18 @@ def model_by_mode(args: Namespace) -> nn.Module:
         model = ModelXtoC(args)
     elif args.mode == "CY":
         model = ModelCtoY(args)
-
     else:
         raise ValueError(f"Unknown mode {args.mode}")
+
+    if args.checkpoint != "":
+        model.load_state_dict(
+            torch.load(
+                args.checkpoint,
+                map_location="cuda" if torch.cuda.is_available() else "cpu",
+            ),
+            strict=False,
+        )
+        print("Continuing with checkpoint:", args.checkpoint)
 
     return model
 
@@ -136,6 +145,7 @@ def create_criterions(model: nn.Module, args: Namespace):
     )
 
     return cross_entropy, protomod_criterion
+
 
 def build_attr_criterion(
     args: Namespace,
@@ -154,7 +164,7 @@ def build_attr_criterion(
             )
     else:
         attr_criterion = [nn.CrossEntropyLoss() for _ in range(args.n_attributes)]
-    
+
     return attr_criterion
 
 
@@ -278,10 +288,12 @@ def binary_accuracy(similarity_scores, target):
     acc = acc * 100 / np.prod(np.array(target.size()))
     return acc
 
+
 def compute_attr_accuracy(attributes, attr_labels_var):
     """Compute binary accuracy over all attributes."""
     sigmoid_outputs = torch.nn.Sigmoid()(attributes)
     return binary_accuracy(sigmoid_outputs, attr_labels_var), attributes.size(0)
+
 
 def compute_accuracies(
     outputs: torch.Tensor,
@@ -329,14 +341,16 @@ def normalize_scientific_floats(cfg):
     else:
         return cfg
 
+
 def process_cbm_config(args: Namespace) -> Namespace:
     # if mode = 'XC', create a argument bottleneck
     if args.mode == "XC":
         args.use_attr = True
         args.no_img = False
         args.bottleneck = True
-    
+
     return args
+
 
 def gather_args():
     parser = argparse.ArgumentParser()
