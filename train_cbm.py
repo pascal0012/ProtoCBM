@@ -350,7 +350,7 @@ def train(model: nn.Module, args: Namespace) -> float:
     )
 
     # load data
-    train_loader = load_data(args, "train")
+    train_loader = load_data(args, ["train", "val"])
     val_loader = load_data(args, "val")
 
     for epoch in range(0, args.epochs):
