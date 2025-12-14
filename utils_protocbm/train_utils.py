@@ -25,7 +25,7 @@ def prepare_model(
 ):
     # Load in weights, if any
     if load_weights:
-        if args.weight_dir:
+        if "weight_dir" in vars(args):
             state_dict = torch.load(args.weight_dir, weights_only=False)
         else:
             path_to_weights = (
