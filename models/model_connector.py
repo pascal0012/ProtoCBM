@@ -49,15 +49,6 @@ class ModelConnector(nn.Module):
 
 
     def forward_featuresCBM(self, features, aux_forward=False):
-        # features [N, 768, 1, 1] -> 768 == backbone.aux_final_channel_dim
-
-        # if self.use_relu:
-        #     attr_outputs = [nn.ReLU()(o) for o in features]
-        # elif self.use_sigmoid:
-        #     attr_outputs = [torch.nn.Sigmoid()(o) for o in features]
-        # else:
-        #     attr_outputs = features
-
         # take the Backbone featuremaps and map to feature vector 
         mapper = self.aux_concept_mapper if aux_forward else self.concept_mapper
         mapped_input = mapper(features)
