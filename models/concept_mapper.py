@@ -58,7 +58,6 @@ class CBMMapper(nn.Module):
         for _ in range(N_ATTRIBUTES_CBM):
             self.all_fc.append(FC(channel_dim, 1, expand_dim))
 
-        self.is_aux = is_aux
 
 
     def forward(self, x):
@@ -89,7 +88,19 @@ class DebugAuxMapperCBM(nn.Module):
 
         self.all_fc = nn.ModuleList()
         for _ in range(N_ATTRIBUTES_CBM):
-            self.all_fc.append(FC(channel_dim, 1, expand_dim))
+            self.all_fc.append(FC(channel_dim, 1, expand_dim, stddev=0.001))
+
+
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                import scipy.stats as stats
+                stddev = m.stddev if hasattr(m, "stddev") else 0.1
+
+                X = stats.truncnorm(-2, 2, scale=stddev)
+                values = torch.as_tensor(X.rvs(m.weight.numel()), dtype=m.weight.dtype)
+                values = values.view(m.weight.size())
+                with torch.no_grad():
+                    m.weight.copy_(values)
 
 
     def forward(self, x):
