@@ -136,6 +136,7 @@ class Inception3(nn.Module):
         own_state = self.state_dict()
         for name, param in state_dict.items():
             if name not in own_state or "fc" in name:
+                print("Skipping loading parameter {}".format(name))
                 continue
             if isinstance(param, Parameter):
                 param = param.data
