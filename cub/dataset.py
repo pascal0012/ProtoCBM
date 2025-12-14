@@ -475,7 +475,10 @@ def load_data(args, split: Literal["train", "val", "test"]):
         args.mode: either "CY" or "AY"
     """
     # TODO: ONLY TEMP FIX
-    pkl_paths = [os.path.join(BASE_DIR, args.data_dir, f"{split}.pkl")]
+    if isinstance(split, str):
+        split = [split]
+
+    pkl_paths = [os.path.join(BASE_DIR, args.data_dir, f"{s}.pkl") for s in split]
     
     is_training = any(['train.pkl' in f for f in pkl_paths])
     transform = get_transform_by_backbone(is_training, args)
