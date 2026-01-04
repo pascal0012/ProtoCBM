@@ -26,7 +26,7 @@ After downloading and uncompressig the files have to be stored in the following 
 
 
 ### Evaluation Data
-For the evaluation we use the part annotations introduced in [A Protocol for Evaluating Model Interpretation Methods from Visual Explanations](https://openaccess.thecvf.com/content/WACV2023/papers/Behzadi-Khormouji_A_Protocol_for_Evaluating_Model_Interpretation_Methods_From_Visual_Explanations_WACV_2023_paper.pdf).
+For the evaluation we use the part annotations introduced in [[3]](#3).
 
 ``` bash
 wget https://github.com/hamedbehzadi/CUB70-PartSegmentationDataset/raw/main/AnnotationMasksPerclass.tar.xz
@@ -38,6 +38,12 @@ After downloading the files shoul be extracted to CUB data directory in the part
 mkdir -p data/CUB_200_2011/part_segmentations/ &&
 tar -xJf AnnotationMasksPerclass.tar.xz -C data/CUB_200_2011/part_segmentations/
 ```
+
+#### Out of Distribution Data
+In order to evaluate the concept accuracy of our model we further test it on the SUB Benchmark [[4]](#4). The dataset cont 
+
+Link to the dataset:
+https://huggingface.co/datasets/Jessica-bader/SUB
 
 ## Execution
 
@@ -51,18 +57,6 @@ something something
 <a id="1">[1]</a> 
 Wah, C., Branson, S., Welinder, P., Perona, P., & Belongie, S. (2011). The caltech-ucsd birds-200-2011 dataset.  
 <a id="2">[2]</a> Koh, P. W., Nguyen, T., Tang, Y. S., Mussmann, S., Pierson, E., Kim, B., & Liang, P. (2020, November). Concept bottleneck models. In International conference on machine learning (pp. 5338-5348). PMLR.   
-<a id="3">[3]</a>
+<a id="3">[3]</a> Behzadi-Khormouji, H., & Oramas, J. (2023). A protocol for evaluating model interpretation methods from visual explanations. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (pp. 1421-1429).
 
-
-## BibTeX Citation
-```
-@inproceedings{behzadi2023protocol,
-  title     = {A protocol for evaluating model interpretation methods 
-               from visual explanations},
-  author    = {Behzadi-Khormouji, Hamed and Oramas, Jos{\'e}},
-  booktitle = {Proceedings of the IEEE/CVF Winter Conference on 
-               Applications of Computer Vision},
-  pages     = {1421--1429},
-  year      = {2023}
-}
-```
+<a id="4">[4]</a> Bader, J., Girrbach, L., Alaniz, S., & Akata, Z. (2025). Sub: Benchmarking cbm generalization via synthetic attribute substitutions. In Proceedings of the IEEE/CVF International Conference on Computer Vision (pp. 23188-23198).
