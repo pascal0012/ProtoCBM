@@ -13,14 +13,16 @@ The following chapter explains how to download and store the Training and valida
 Shoud you want to store the data in a different location please modify the `BASE_DIR` variable in the `config.py` file.
 
 ### Training Datat
-The training data can be 
+To train the model we use the CUB_200_2011 dataset [[1]](#1). In order to train our model we use the download link provided from the GitHub repo of [[2]](#2). 
 
-curl -L "https://storageclwsprod1.blob.core.windows.net/bundles/0xd013a7ba2e88481bbc07e787f73109f5/contents.tar.gz?se=2025-12-11T19%3A44%3A39Z&sp=rt&sv=2019-12-12&sr=b&rscd=attachment%3B%20filename%3D%22CUB_200_2011.tar.gz%22&rsce=identity&rsct=application/gzip&sig=qSpj/DcMwWU4ue1shPbq9BUzt7F3R79Zhs4Rgy4xNh8%3D"
+The dataset provided by the authors of [[2]](#2) is separated into two components. Where the first one is called `CUB_proecessed`. This part contains pickel files with information about the training and testing split of their model. To ensure similar results we also use the provided split. The second part of the provided data is the `CUB_Dataset`. It contains the original image, metadata information (part positions, labels, etc.). Again to ensure equality of the different training runs we also use the provided dataset instead of downloading it from the Caltech website.
 
-Additionally to the CUB_200_2011 dataset we use the preprocessed training data from the CUB paper. The processed data can be downloaded using the following link.
-https://worksheets.codalab.org/bundles/0x5b9d528d2101418b87212db92fea6683
+The data can be dowloaded from the following [Link](https://worksheets.codalab.org/worksheets/0x362911581fcd4e048ddfd84f47203fd2).
 
-The `processed_data` should be stored in the following directory: `./data/CUB_processed/`
+
+After downloading and uncompressig the files have to be stored in the following locations. 
+- The `processed_data` should be stored in `./data/CUB_processed/`
+- The `CUB_200_2011` folder shoudl be stored in `./data/CUB_200_2011`
 
 
 ### Evaluation Data
@@ -37,8 +39,21 @@ mkdir -p data/CUB_200_2011/part_segmentations/ &&
 tar -xJf AnnotationMasksPerclass.tar.xz -C data/CUB_200_2011/part_segmentations/
 ```
 
-
 ## Execution
+
+**Training Script**   
+Something somethin
+
+**Evaluation Script**   
+something something
+
+## References
+<a id="1">[1]</a> 
+Wah, C., Branson, S., Welinder, P., Perona, P., & Belongie, S. (2011). The caltech-ucsd birds-200-2011 dataset.  
+<a id="2">[2]</a> Koh, P. W., Nguyen, T., Tang, Y. S., Mussmann, S., Pierson, E., Kim, B., & Liang, P. (2020, November). Concept bottleneck models. In International conference on machine learning (pp. 5338-5348). PMLR.   
+<a id="3">[3]</a>
+
+
 ## BibTeX Citation
 ```
 @inproceedings{behzadi2023protocol,
