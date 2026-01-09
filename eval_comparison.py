@@ -10,28 +10,22 @@ import torch
 from tqdm import tqdm
 import numpy as np
 
-from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics
 from localization.visualise import (
-    create_attribute_mosaic,
-    visualise_part_segmentations,
-    visualise_localization_acc_boxes,
-    plot_threshold_curve,
     visualize_keypoint_distances,
     save_individual_activation_maps,
     save_aggregated_activation_maps
 )
 from localization.localization_accuracy import (
-    calculate_average_partwise_localization_accuracy,
     compute_localization_accuracy,
     compute_localization_accuracy_aggregated,  # NEW METHOD
     calculate_average_partwise_localization_distance,
-    compute_localization_accuracy_without_argmaxing
 )
+
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS
 from utils_protocbm.eval_utils import LocalizationMeter, get_localization_loader
-from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, prepare_model, model_by_mode, gather_args
+from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, model_by_mode, gather_args, prepare_model
 
 
 def create_model(args):
@@ -59,8 +53,14 @@ def eval(args):
 
     # Create the model and load weights
     model = create_model(args)
-    model, device = prepare_model(model, args, load_weights=True)
+    model, device = prepare_model(model, args, load_weights=True, compile=False)
     model.eval()
+
+    # IMPORTANT: Override batch size to 1 since we only visualize batch_idx=0
+    # This makes evaluation much faster and avoids wasting computation
+    original_batch_size = args.batch_size
+    args.batch_size = 1
+    print(f"Overriding batch_size from {original_batch_size} to 1 for efficient visualization")
 
     # Get the localization data loader and additional transform statistics
     loader, transform_mean, transform_std, img_size = get_localization_loader(model, args.data_dir, args.split_dir, args)
@@ -78,8 +78,20 @@ def eval(args):
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
 
+    # Optional: Limit number of samples for faster visualization testing
+    max_samples = getattr(args, 'max_samples', None)
+    total_samples = min(len(loader), max_samples) if max_samples else len(loader)
+
+    print(f"Processing {total_samples} samples (batch_size=1, vis_every_n={args.vis_every_n})")
+    if args.vis_every_n > 0:
+        num_visualizations = (total_samples + args.vis_every_n - 1) // args.vis_every_n
+        print(f"Will generate {num_visualizations} sets of visualizations")
+
     with torch.no_grad():
-        for data_idx, data in enumerate(tqdm(loader, desc="Evaluating batches")):
+        for data_idx, data in enumerate(tqdm(loader, desc="Evaluating samples", total=total_samples)):
+            # Stop if we've reached max_samples
+            if max_samples and data_idx >= max_samples:
+                break
             # Cast data to device
             data = [v.to(device) if torch.is_tensor(v) else v for v in data]
 
@@ -163,7 +175,8 @@ def eval(args):
                     source_paths,
                     batch_idx=batch_idx,
                     t_mean=transform_mean, t_std=transform_std,
-                    save_path=out_dir_agg_individual
+                    save_path=out_dir_agg_individual,
+                    normalize_heatmaps=False  # Use raw values without rescaling
                 )
 
     # ========== COMPUTE STATISTICS FOR BOTH METHODS ==========
@@ -206,6 +219,15 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic=True
 
     args = gather_args()
+
+    # Check if a direct checkpoint path is provided
+    # If checkpoint is specified and exists, use it as weight_dir
+    if hasattr(args, 'checkpoint') and args.checkpoint and os.path.exists(args.checkpoint):
+        print(f"Using direct checkpoint path: {args.checkpoint}")
+        args.weight_dir = args.checkpoint
+    elif hasattr(args, 'checkpoint') and args.checkpoint:
+        print(f"Warning: Checkpoint path specified but not found: {args.checkpoint}")
+        print(f"Falling back to default: {os.path.join(args.log_dir, f'best_model_{args.seed}.pth')}")
 
     # Create out folder for any visualizations / eval outputs
     out_folder_path = os.path.join(args.log_dir, f"comparison_{args.saliency_method}")
