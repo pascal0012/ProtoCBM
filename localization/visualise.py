@@ -400,6 +400,164 @@ def visualise_localization_acc_boxes(
 
 
 
+def save_individual_activation_maps(
+    imgs,
+    saliency_maps,
+    attribute_names,
+    part_attribute_mapping,
+    source_paths,
+    batch_idx=0,
+    t_mean=(0.5, 0.5, 0.5),
+    t_std=(2, 2, 2),
+    save_path=""
+):
+    """
+    Save individual activation maps for each body part and attribute.
+    Creates a folder structure: save_path/body_part/attribute_name.png
+
+    Args:
+        imgs: torch.Tensor of [B, C, H, W] - input images
+        saliency_maps: torch.Tensor of [B, A, H, W] - activation maps per attribute
+        attribute_names: List of [A] attribute names
+        part_attribute_mapping: Dict mapping part names to attribute indices
+        source_paths: List of image paths
+        batch_idx: Which image in batch to visualize
+        t_mean: Mean applied during preprocessing
+        t_std: Std applied during preprocessing
+        save_path: Base path where to save visualizations
+    """
+    B, A, H, W = saliency_maps.shape
+
+    # Get the specific image and its activation maps
+    img = imgs[batch_idx]
+    masks = saliency_maps[batch_idx]  # [A, H, W]
+    img_path = source_paths[batch_idx]
+
+    # Extract image identifier from path
+    img_name = "_".join(img_path.split(os.sep)[-2:]).rstrip(".jpg")
+
+    # Only have part segmentations for first 70 classes
+    class_id = int(img_name[:3])
+    if class_id > 70:
+        return
+
+    # Denormalize image
+    img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
+    img_np = img_np * np.array(t_std) + np.array(t_mean)
+    img_np = np.clip(img_np, 0, 1)
+
+    # Iterate through each body part
+    for part_name, attr_indices in part_attribute_mapping.items():
+        # Create folder for this body part
+        part_folder = os.path.join(save_path, part_name)
+        os.makedirs(part_folder, exist_ok=True)
+
+        # Save each attribute's activation map for this part
+        for attr_idx in attr_indices:
+            if attr_idx >= len(attribute_names):
+                continue
+
+            attr_name = attribute_names[attr_idx]
+            attn_mask = masks[attr_idx].cpu().detach().numpy()
+
+            # Create visualization
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+
+            # Left: Image with heatmap overlay
+            ax1.imshow(img_np)
+            ax1.imshow(attn_mask, cmap='jet', alpha=0.5)
+            ax1.axis('off')
+            ax1.set_title(f'Overlay: {attr_name}')
+
+            # Right: Pure heatmap
+            ax2.imshow(attn_mask, cmap='jet')
+            ax2.axis('off')
+            ax2.set_title(f'Heatmap: {attr_name}')
+
+            plt.tight_layout()
+
+            # Save with sanitized filename
+            safe_attr_name = attr_name.replace('/', '_').replace(' ', '_')
+            save_file = os.path.join(part_folder, f"{img_name}_{safe_attr_name}.png")
+            plt.savefig(save_file, dpi=150, bbox_inches='tight')
+            plt.close()
+
+
+def save_aggregated_activation_maps(
+    imgs,
+    aggregated_heatmaps,
+    part_names,
+    source_paths,
+    batch_idx=0,
+    t_mean=(0.5, 0.5, 0.5),
+    t_std=(2, 2, 2),
+    save_path=""
+):
+    """
+    Save aggregated activation maps per body part.
+    Creates a folder structure: save_path/body_part/aggregated_map.png
+
+    Args:
+        imgs: torch.Tensor of [B, C, H, W] - input images
+        aggregated_heatmaps: torch.Tensor of [B, K, H, W] - aggregated activation maps per body part
+        part_names: List of K part names
+        source_paths: List of image paths
+        batch_idx: Which image in batch to visualize
+        t_mean: Mean applied during preprocessing
+        t_std: Std applied during preprocessing
+        save_path: Base path where to save visualizations
+    """
+    B, K, H, W = aggregated_heatmaps.shape
+
+    # Get the specific image and its activation maps
+    img = imgs[batch_idx]
+    heatmaps = aggregated_heatmaps[batch_idx]  # [K, H, W]
+    img_path = source_paths[batch_idx]
+
+    # Extract image identifier from path
+    img_name = "_".join(img_path.split(os.sep)[-2:]).rstrip(".jpg")
+
+    # Only have part segmentations for first 70 classes
+    class_id = int(img_name[:3])
+    if class_id > 70:
+        return
+
+    # Denormalize image
+    img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
+    img_np = img_np * np.array(t_std) + np.array(t_mean)
+    img_np = np.clip(img_np, 0, 1)
+
+    # Iterate through each body part
+    for part_idx, part_name in enumerate(part_names):
+        # Create folder for this body part
+        part_folder = os.path.join(save_path, part_name)
+        os.makedirs(part_folder, exist_ok=True)
+
+        attn_mask = heatmaps[part_idx].cpu().detach().numpy()
+
+        # Create visualization
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+
+        # Left: Image with heatmap overlay
+        ax1.imshow(img_np)
+        ax1.imshow(attn_mask, cmap='jet', alpha=0.5)
+        ax1.axis('off')
+        ax1.set_title(f'Overlay: {part_name} (Aggregated)')
+
+        # Right: Pure heatmap
+        ax2.imshow(attn_mask, cmap='jet')
+        ax2.axis('off')
+        ax2.set_title(f'Heatmap: {part_name} (Aggregated)')
+
+        plt.tight_layout()
+
+        # Save with sanitized filename
+        safe_part_name = part_name.replace('/', '_').replace(' ', '_')
+        save_file = os.path.join(part_folder, f"{img_name}_{safe_part_name}_aggregated.png")
+        plt.savefig(save_file, dpi=150, bbox_inches='tight')
+        plt.close()
+
+
 def visualise_part_segmentations(
     imgs,
     saliency_maps,
