@@ -18,11 +18,11 @@ import numpy as np
 from localization.visualise import (
     save_individual_activation_maps,
     save_aggregated_activation_maps,
-    visualize_keypoint_distances
+    visualize_keypoint_distances,
 )
 from localization.localization_accuracy import (
     compute_localization_accuracy,
-    compute_localization_accuracy_aggregated
+    compute_localization_accuracy_aggregated,
 )
 from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
@@ -39,7 +39,11 @@ def prepare_model_fast(model, args, load_weights=False):
     if load_weights:
         if "weight_dir" in vars(args):
             state_dict = torch.load(args.weight_dir, weights_only=False)
-        elif hasattr(args, 'checkpoint') and args.checkpoint and os.path.exists(args.checkpoint):
+        elif (
+            hasattr(args, "checkpoint")
+            and args.checkpoint
+            and os.path.exists(args.checkpoint)
+        ):
             state_dict = torch.load(args.checkpoint, weights_only=False)
         else:
             path_to_weights = (
@@ -68,7 +72,7 @@ def prepare_model_fast(model, args, load_weights=False):
     model = model.to(device)
 
     # Skip compilation if requested (faster loading)
-    skip_compile = getattr(args, 'skip_compile', False)
+    skip_compile = getattr(args, "skip_compile", False)
     if not skip_compile:
         model.compile()
     else:
@@ -79,7 +83,7 @@ def prepare_model_fast(model, args, load_weights=False):
 
 def load_config(config_path):
     """Load configuration from YAML file."""
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     return config
 
@@ -107,7 +111,7 @@ def create_model(args):
 
 def load_and_preprocess_image(image_path, transform, device):
     """Load and preprocess a single image."""
-    img = Image.open(image_path).convert('RGB')
+    img = Image.open(image_path).convert("RGB")
     img_tensor = transform(img).unsqueeze(0)  # Add batch dimension
     return img_tensor.to(device)
 
@@ -117,11 +121,13 @@ def get_transform(img_size=299):
     mean = [0.5, 0.5, 0.5]
     std = [2.0, 2.0, 2.0]
 
-    transform = transforms.Compose([
-        transforms.Resize((img_size, img_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std)
-    ])
+    transform = transforms.Compose(
+        [
+            transforms.Resize((img_size, img_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std),
+        ]
+    )
 
     return transform, mean, std
 
@@ -176,7 +182,9 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
     # We'll use batch_size=1 to load just one sample from the dataset
     # For single image visualization, we only need the metadata, not actual data loading
     args.batch_size = 1
-    loader, _, _, _ = get_localization_loader(model, args.data_dir, args.split_dir, args)
+    loader, _, _, _ = get_localization_loader(
+        model, args.data_dir, args.split_dir, args
+    )
 
     attribute_names = loader.dataset.attribute_names
     part_dict = loader.dataset.part_dict
@@ -215,17 +223,34 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
     print("Computing localization with ARGMAX method...")
 
     # ========== METHOD 1: ARGMAX (Original) ==========
-    predicted_coords_argmax, dists_argmax, heatmaps_argmax, _ = compute_localization_accuracy(
-        scores, saliency_maps, part_bbs, part_gts, part_dict,
-        map_part_to_attr_loc_acc, loc_acc_collector_argmax, img_size=img_size
+    predicted_coords_argmax, dists_argmax, heatmaps_argmax, _ = (
+        compute_localization_accuracy(
+            scores,
+            saliency_maps,
+            part_bbs,
+            part_gts,
+            part_dict,
+            map_part_to_attr_loc_acc,
+            loc_acc_collector_argmax,
+            img_size=img_size,
+        )
     )
 
     print("Computing localization with AGGREGATED method...")
 
     # ========== METHOD 2: AGGREGATED (New) ==========
-    predicted_coords_agg, dists_agg, heatmaps_agg, _ = compute_localization_accuracy_aggregated(
-        scores, saliency_maps, part_bbs, part_gts, part_dict,
-        map_part_to_attr_loc_acc, loc_acc_collector_aggregated, img_size=img_size
+    predicted_coords_agg, dists_agg, heatmaps_agg, _ = (
+        compute_localization_accuracy_aggregated(
+            scores,
+            saliency_maps,
+            part_bbs,
+            part_gts,
+            part_dict,
+            map_part_to_attr_loc_acc,
+            loc_acc_collector_aggregated,
+            img_size=img_size,
+            interpolate=False,
+        )
     )
 
     print(f"Argmax heatmaps shape: {heatmaps_argmax.shape}")
@@ -246,18 +271,32 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
 
     # Visualize ARGMAX method
     visualize_keypoint_distances(
-        part_gts, img_tensor, source_paths, predicted_coords_argmax, dists_argmax,
-        0, list(part_dict.values()),
+        part_gts,
+        img_tensor,
+        source_paths,
+        predicted_coords_argmax,
+        dists_argmax,
+        0,
+        list(part_dict.values()),
         batch_idx=batch_idx,
-        t_mean=transform_mean, t_std=transform_std, save_path=out_dir_argmax
+        t_mean=transform_mean,
+        t_std=transform_std,
+        save_path=out_dir_argmax,
     )
 
     # Visualize AGGREGATED method
     visualize_keypoint_distances(
-        part_gts, img_tensor, source_paths, predicted_coords_agg, dists_agg,
-        0, list(part_dict.values()),
+        part_gts,
+        img_tensor,
+        source_paths,
+        predicted_coords_agg,
+        dists_agg,
+        0,
+        list(part_dict.values()),
         batch_idx=batch_idx,
-        t_mean=transform_mean, t_std=transform_std, save_path=out_dir_agg
+        t_mean=transform_mean,
+        t_std=transform_std,
+        save_path=out_dir_agg,
     )
 
     # ========== SAVE INDIVIDUAL ACTIVATION MAPS ==========
@@ -271,42 +310,60 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
 
     # For ARGMAX method: save individual activation maps per attribute
     save_individual_activation_maps(
-        img_tensor, saliency_maps, attribute_names,
+        img_tensor,
+        saliency_maps,
+        attribute_names,
         map_part_to_attr_loc_acc,
         source_paths,
         batch_idx=batch_idx,
-        t_mean=transform_mean, t_std=transform_std,
-        save_path=out_dir_argmax_individual
+        t_mean=transform_mean,
+        t_std=transform_std,
+        save_path=out_dir_argmax_individual,
     )
 
     # For AGGREGATED method: save the aggregated heatmaps per body part
     save_aggregated_activation_maps(
-        img_tensor, heatmaps_agg,
+        img_tensor,
+        heatmaps_agg,
         list(part_dict.values()),
         source_paths,
         batch_idx=batch_idx,
-        t_mean=transform_mean, t_std=transform_std,
+        t_mean=transform_mean,
+        t_std=transform_std,
         save_path=out_dir_agg_individual,
-        normalize_heatmaps=False  # Use raw values without rescaling
+        normalize_heatmaps=False,  # Use raw values without rescaling
     )
 
-    print(f"\nVisualization complete!")
+    print("\nVisualization complete!")
     print(f"Results saved to: {output_dir}")
     print(f"  - Argmax method: {out_dir_argmax}")
     print(f"  - Aggregated method: {out_dir_agg}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Visualize heatmaps for a single image')
-    parser.add_argument('--image_path', type=str, required=True,
-                        help='Path to the input image')
-    parser.add_argument('--config', type=str,
-                        default='configs/eval_protocbm_comparison.yaml',
-                        help='Path to the YAML config file')
-    parser.add_argument('--output_dir', type=str, default=None,
-                        help='Directory to save visualizations (default: ./outputs/single_image_viz)')
-    parser.add_argument('--no-skip-compile', action='store_true',
-                        help='Enable torch.compile() (slower loading, faster inference for batches)')
+    parser = argparse.ArgumentParser(
+        description="Visualize heatmaps for a single image"
+    )
+    parser.add_argument(
+        "--image_path", type=str, required=True, help="Path to the input image"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/eval_protocbm_comparison.yaml",
+        help="Path to the YAML config file",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="Directory to save visualizations (default: ./outputs/single_image_viz)",
+    )
+    parser.add_argument(
+        "--no-skip-compile",
+        action="store_true",
+        help="Enable torch.compile() (slower loading, faster inference for batches)",
+    )
 
     args = parser.parse_args()
 
@@ -320,8 +377,13 @@ def main():
         print(f"Error: Config file not found at {args.config}")
         sys.exit(1)
 
-    visualize_single_image(args.image_path, args.config, args.output_dir, skip_compile=not args.no_skip_compile)
+    visualize_single_image(
+        args.image_path,
+        args.config,
+        args.output_dir,
+        skip_compile=not args.no_skip_compile,
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

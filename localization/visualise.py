@@ -597,7 +597,7 @@ def save_aggregated_activation_maps(
         # ========== PLOT 1: Scaled heatmap overlayed on image ==========
         fig1, ax1 = plt.subplots(1, 1, figsize=(6, 6))
         ax1.imshow(img_np)
-        im1 = ax1.imshow(attn_mask_scaled, cmap='jet', alpha=0.5, vmin=0 if not normalize_heatmaps else None, vmax=None)
+        ax1.imshow(attn_mask_scaled, cmap='jet', alpha=0.5, vmin=0 if not normalize_heatmaps else None, vmax=None)
         ax1.axis('off')
         title_suffix = "(Scaled to Image Size)" if normalize_heatmaps else "(Scaled, Raw Values)"
         ax1.set_title(f'{part_name} (Aggregated)\n{title_suffix}', fontsize=10)
@@ -609,13 +609,10 @@ def save_aggregated_activation_maps(
 
         # ========== PLOT 2: Original size heatmap ==========
         fig2, ax2 = plt.subplots(1, 1, figsize=(6, 6))
-        im2 = ax2.imshow(attn_mask_original, cmap='jet', vmin=0 if not normalize_heatmaps else None, vmax=None)
+        ax2.imshow(attn_mask_original, cmap='jet', vmin=0 if not normalize_heatmaps else None, vmax=None)
         ax2.axis('off')
         title_suffix = f"(Original Size: {H_map}x{W_map})" if normalize_heatmaps else f"(Original Size: {H_map}x{W_map}, Raw Values)"
         ax2.set_title(f'{part_name} (Aggregated)\n{title_suffix}', fontsize=10)
-
-        # Add colorbar to show the value range
-        plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
 
         plt.tight_layout()
         save_file_original = os.path.join(part_folder, f"{img_name}_{safe_part_name}_aggregated_original.png")
