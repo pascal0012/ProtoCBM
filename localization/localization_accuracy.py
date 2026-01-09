@@ -104,6 +104,7 @@ def compute_localization_accuracy_aggregated(
     part_attribute_mapping_tensor: Dict[str, torch.IntTensor],
     collector_list: List[Dict[str, float]],
     img_size: int = 299,
+    interpolate=True
 ):
     """
         This method calculates the localization accuracy per part by AGGREGATING (summing) attention maps
@@ -176,7 +177,11 @@ def compute_localization_accuracy_aggregated(
         sub_res = dict(zip(list(part_dict.values()), dist[i].tolist()))
         collector_list.append(sub_res)
 
-    return predicted_coords, dist, resized_heatmaps, aggregated_scores
+    if interpolate:
+        return predicted_coords, dist, resized_heatmaps, aggregated_scores
+    else:
+        return predicted_coords, dist, heatmaps, aggregated_scores
+
 
 
 def compute_localization_accuracy(
