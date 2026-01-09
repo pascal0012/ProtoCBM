@@ -413,7 +413,11 @@ def save_individual_activation_maps(
 ):
     """
     Save individual activation maps for each body part and attribute.
-    Creates a folder structure: save_path/body_part/attribute_name.png
+    Creates two plots per attribute:
+    1) Scaled heatmap overlayed on image
+    2) Original size heatmap
+
+    Creates folder structure: save_path/body_part/attribute_name_[scaled|original].png
 
     Args:
         imgs: torch.Tensor of [B, C, H, W] - input images
@@ -426,25 +430,40 @@ def save_individual_activation_maps(
         t_std: Std applied during preprocessing
         save_path: Base path where to save visualizations
     """
-    B, A, H, W = saliency_maps.shape
+    B, A, H_map, W_map = saliency_maps.shape
 
     # Get the specific image and its activation maps
     img = imgs[batch_idx]
-    masks = saliency_maps[batch_idx]  # [A, H, W]
+    masks = saliency_maps[batch_idx]  # [A, H_map, W_map]
     img_path = source_paths[batch_idx]
 
     # Extract image identifier from path
     img_name = "_".join(img_path.split(os.sep)[-2:]).rstrip(".jpg")
 
     # Only have part segmentations for first 70 classes
-    class_id = int(img_name[:3])
-    if class_id > 70:
-        return
+    # Try to extract class ID, skip if it's not a standard CUB dataset format
+    try:
+        class_id = int(img_name[:3])
+        if class_id > 70:
+            return
+    except (ValueError, IndexError):
+        # Not a standard CUB format (e.g., custom image), continue anyway
+        pass
 
     # Denormalize image
-    img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
+    img_np = img.permute(1, 2, 0).cpu().numpy()  # H_img x W_img x C
     img_np = img_np * np.array(t_std) + np.array(t_mean)
     img_np = np.clip(img_np, 0, 1)
+    H_img, W_img = img_np.shape[:2]
+
+    # Resize all attention maps to image size once
+    # Convert to torch tensor for interpolation
+    masks_resized = F.interpolate(
+        masks.unsqueeze(0),  # [1, A, H_map, W_map]
+        size=(H_img, W_img),
+        mode='bilinear',
+        align_corners=False
+    ).squeeze(0)  # [A, H_img, W_img]
 
     # Iterate through each body part
     for part_name, attr_indices in part_attribute_mapping.items():
@@ -458,29 +477,36 @@ def save_individual_activation_maps(
                 continue
 
             attr_name = attribute_names[attr_idx]
-            attn_mask = masks[attr_idx].cpu().detach().numpy()
 
-            # Create visualization
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+            # Get both original and scaled versions
+            attn_mask_original = masks[attr_idx].cpu().detach().numpy()  # [H_map, W_map]
+            attn_mask_scaled = masks_resized[attr_idx].cpu().detach().numpy()  # [H_img, W_img]
 
-            # Left: Image with heatmap overlay
+            # Sanitize filename once
+            safe_attr_name = attr_name.replace('/', '_').replace(' ', '_')
+
+            # ========== PLOT 1: Scaled heatmap overlayed on image ==========
+            fig1, ax1 = plt.subplots(1, 1, figsize=(6, 6))
             ax1.imshow(img_np)
-            ax1.imshow(attn_mask, cmap='jet', alpha=0.5)
+            ax1.imshow(attn_mask_scaled, cmap='jet', alpha=0.5)
             ax1.axis('off')
-            ax1.set_title(f'Overlay: {attr_name}')
-
-            # Right: Pure heatmap
-            ax2.imshow(attn_mask, cmap='jet')
-            ax2.axis('off')
-            ax2.set_title(f'Heatmap: {attr_name}')
+            ax1.set_title(f'{attr_name}\n(Scaled to Image Size)', fontsize=10)
 
             plt.tight_layout()
+            save_file_scaled = os.path.join(part_folder, f"{img_name}_{safe_attr_name}_scaled.png")
+            plt.savefig(save_file_scaled, dpi=150, bbox_inches='tight')
+            plt.close(fig1)
 
-            # Save with sanitized filename
-            safe_attr_name = attr_name.replace('/', '_').replace(' ', '_')
-            save_file = os.path.join(part_folder, f"{img_name}_{safe_attr_name}.png")
-            plt.savefig(save_file, dpi=150, bbox_inches='tight')
-            plt.close()
+            # ========== PLOT 2: Original size heatmap ==========
+            fig2, ax2 = plt.subplots(1, 1, figsize=(6, 6))
+            ax2.imshow(attn_mask_original, cmap='jet')
+            ax2.axis('off')
+            ax2.set_title(f'{attr_name}\n(Original Size: {H_map}x{W_map})', fontsize=10)
+
+            plt.tight_layout()
+            save_file_original = os.path.join(part_folder, f"{img_name}_{safe_attr_name}_original.png")
+            plt.savefig(save_file_original, dpi=150, bbox_inches='tight')
+            plt.close(fig2)
 
 
 def save_aggregated_activation_maps(
@@ -491,11 +517,16 @@ def save_aggregated_activation_maps(
     batch_idx=0,
     t_mean=(0.5, 0.5, 0.5),
     t_std=(2, 2, 2),
-    save_path=""
+    save_path="",
+    normalize_heatmaps=False
 ):
     """
     Save aggregated activation maps per body part.
-    Creates a folder structure: save_path/body_part/aggregated_map.png
+    Creates two plots per part:
+    1) Scaled heatmap overlayed on image
+    2) Original size heatmap
+
+    Creates folder structure: save_path/body_part/part_name_[scaled|original].png
 
     Args:
         imgs: torch.Tensor of [B, C, H, W] - input images
@@ -506,26 +537,41 @@ def save_aggregated_activation_maps(
         t_mean: Mean applied during preprocessing
         t_std: Std applied during preprocessing
         save_path: Base path where to save visualizations
+        normalize_heatmaps: If True, normalize heatmaps to [0, 1] range per heatmap. If False, use raw values.
     """
-    B, K, H, W = aggregated_heatmaps.shape
+    B, K, H_map, W_map = aggregated_heatmaps.shape
 
     # Get the specific image and its activation maps
     img = imgs[batch_idx]
-    heatmaps = aggregated_heatmaps[batch_idx]  # [K, H, W]
+    heatmaps = aggregated_heatmaps[batch_idx]  # [K, H_map, W_map]
     img_path = source_paths[batch_idx]
 
     # Extract image identifier from path
     img_name = "_".join(img_path.split(os.sep)[-2:]).rstrip(".jpg")
 
     # Only have part segmentations for first 70 classes
-    class_id = int(img_name[:3])
-    if class_id > 70:
-        return
+    # Try to extract class ID, skip if it's not a standard CUB dataset format
+    try:
+        class_id = int(img_name[:3])
+        if class_id > 70:
+            return
+    except (ValueError, IndexError):
+        # Not a standard CUB format (e.g., custom image), continue anyway
+        pass
 
     # Denormalize image
-    img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
+    img_np = img.permute(1, 2, 0).cpu().numpy()  # H_img x W_img x C
     img_np = img_np * np.array(t_std) + np.array(t_mean)
     img_np = np.clip(img_np, 0, 1)
+    H_img, W_img = img_np.shape[:2]
+
+    # Resize all heatmaps to image size once
+    heatmaps_resized = F.interpolate(
+        heatmaps.unsqueeze(0),  # [1, K, H_map, W_map]
+        size=(H_img, W_img),
+        mode='bilinear',
+        align_corners=False
+    ).squeeze(0)  # [K, H_img, W_img]
 
     # Iterate through each body part
     for part_idx, part_name in enumerate(part_names):
@@ -533,29 +579,48 @@ def save_aggregated_activation_maps(
         part_folder = os.path.join(save_path, part_name)
         os.makedirs(part_folder, exist_ok=True)
 
-        attn_mask = heatmaps[part_idx].cpu().detach().numpy()
+        # Get both original and scaled versions
+        attn_mask_original = heatmaps[part_idx].cpu().detach().numpy()  # [H_map, W_map]
+        attn_mask_scaled = heatmaps_resized[part_idx].cpu().detach().numpy()  # [H_img, W_img]
 
-        # Create visualization
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+        # Normalize if requested, otherwise use raw values
+        if normalize_heatmaps:
+            # Normalize each heatmap individually to [0, 1]
+            if attn_mask_original.max() > attn_mask_original.min():
+                attn_mask_original = (attn_mask_original - attn_mask_original.min()) / (attn_mask_original.max() - attn_mask_original.min())
+            if attn_mask_scaled.max() > attn_mask_scaled.min():
+                attn_mask_scaled = (attn_mask_scaled - attn_mask_scaled.min()) / (attn_mask_scaled.max() - attn_mask_scaled.min())
 
-        # Left: Image with heatmap overlay
+        # Sanitize filename
+        safe_part_name = part_name.replace('/', '_').replace(' ', '_')
+
+        # ========== PLOT 1: Scaled heatmap overlayed on image ==========
+        fig1, ax1 = plt.subplots(1, 1, figsize=(6, 6))
         ax1.imshow(img_np)
-        ax1.imshow(attn_mask, cmap='jet', alpha=0.5)
+        im1 = ax1.imshow(attn_mask_scaled, cmap='jet', alpha=0.5, vmin=0 if not normalize_heatmaps else None, vmax=None)
         ax1.axis('off')
-        ax1.set_title(f'Overlay: {part_name} (Aggregated)')
-
-        # Right: Pure heatmap
-        ax2.imshow(attn_mask, cmap='jet')
-        ax2.axis('off')
-        ax2.set_title(f'Heatmap: {part_name} (Aggregated)')
+        title_suffix = "(Scaled to Image Size)" if normalize_heatmaps else "(Scaled, Raw Values)"
+        ax1.set_title(f'{part_name} (Aggregated)\n{title_suffix}', fontsize=10)
 
         plt.tight_layout()
+        save_file_scaled = os.path.join(part_folder, f"{img_name}_{safe_part_name}_aggregated_scaled.png")
+        plt.savefig(save_file_scaled, dpi=150, bbox_inches='tight')
+        plt.close(fig1)
 
-        # Save with sanitized filename
-        safe_part_name = part_name.replace('/', '_').replace(' ', '_')
-        save_file = os.path.join(part_folder, f"{img_name}_{safe_part_name}_aggregated.png")
-        plt.savefig(save_file, dpi=150, bbox_inches='tight')
-        plt.close()
+        # ========== PLOT 2: Original size heatmap ==========
+        fig2, ax2 = plt.subplots(1, 1, figsize=(6, 6))
+        im2 = ax2.imshow(attn_mask_original, cmap='jet', vmin=0 if not normalize_heatmaps else None, vmax=None)
+        ax2.axis('off')
+        title_suffix = f"(Original Size: {H_map}x{W_map})" if normalize_heatmaps else f"(Original Size: {H_map}x{W_map}, Raw Values)"
+        ax2.set_title(f'{part_name} (Aggregated)\n{title_suffix}', fontsize=10)
+
+        # Add colorbar to show the value range
+        plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
+
+        plt.tight_layout()
+        save_file_original = os.path.join(part_folder, f"{img_name}_{safe_part_name}_aggregated_original.png")
+        plt.savefig(save_file_original, dpi=150, bbox_inches='tight')
+        plt.close(fig2)
 
 
 def visualise_part_segmentations(
