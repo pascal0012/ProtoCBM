@@ -22,6 +22,7 @@ def prepare_model(
     args: Namespace,
     load_weights: bool = False,
     training: bool = False,
+    compile: bool = True,
 ):
     # Load in weights, if any
     if load_weights:
@@ -55,7 +56,9 @@ def prepare_model(
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
-    model.compile()
+
+    if compile:
+        model.compile()
 
     return model, device
 

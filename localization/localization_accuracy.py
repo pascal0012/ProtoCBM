@@ -180,6 +180,7 @@ def compute_localization_accuracy_aggregated(
     if interpolate:
         return predicted_coords, dist, resized_heatmaps, aggregated_scores
     else:
+        # return orginal heatmaps (better for plotting)
         return predicted_coords, dist, heatmaps, aggregated_scores
 
 
