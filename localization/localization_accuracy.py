@@ -95,13 +95,97 @@ def compute_localization_accuracy_without_argmaxing(
     return predicted_coords_attr, dist_per_part, resized_heatmaps, aggregated_scores
 
 
+def compute_localization_accuracy_aggregated(
+    pre_attri: torch.FloatTensor,
+    attention: torch.FloatTensor,
+    bounding_box_per_part: torch.IntTensor,
+    part_gts:torch.IntTensor,
+    part_dict: Dict[str, int],
+    part_attribute_mapping_tensor: Dict[str, torch.IntTensor],
+    collector_list: List[Dict[str, float]],
+    img_size: int = 299,
+):
+    """
+        This method calculates the localization accuracy per part by AGGREGATING (summing) attention maps
+        of all attributes belonging to each body part, then finding the maximum activation location.
+
+        This is different from compute_localization_accuracy which uses argmax to select a single attribute per part.
+
+        Args:
+            pre_attri: activations for each attribute in the model
+            attention: heatmaps/saliency maps per attribute, shape [B, A, H, W]
+            part_bounding_boxes: The bounding box per part, for each image, as given by its coordinates [B, K, 4]
+            part_dict: Mapping from part segmentation groups to CUB original parts
+            part_attribute_mapping: Mapping from CUB parts to relative attribute IDs. Amount of IDs should be A.
+            collector_list: List to collect the mIoU results into.
+            img_size: The image size.
+
+        Returns:
+            predicted_coords, dist, resized_heatmaps, aggregated_scores
+    """
+
+    B, A, H_att, W_att = attention.shape
+    K = len(part_dict)
+
+    # Create a mask to track which parts are present
+    valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
+
+    # Aggregate attention maps per part by SUMMING all attributes belonging to that part
+    aggregated_heatmaps = []
+    aggregated_scores = []
+
+    for part in part_dict.values():
+        # Get indices of attributes belonging to this part
+        attr_indices = part_attribute_mapping_tensor[part]
+
+        # Sum attention maps for all attributes in this part [B, H, W]
+        part_attention_sum = attention[:, attr_indices].sum(dim=1)  # [B, H_att, W_att]
+        aggregated_heatmaps.append(part_attention_sum)
+
+        # Also sum the activation scores for this part
+        part_score_sum = pre_attri[:, attr_indices].sum(dim=1)  # [B]
+        aggregated_scores.append(part_score_sum)
+
+    # Stack to create [B, K, H, W]
+    heatmaps = torch.stack(aggregated_heatmaps, dim=1)  # [B, K, H_att, W_att]
+    aggregated_scores = torch.stack(aggregated_scores, dim=1)  # [B, K]
+
+    # Resize heatmaps to image size
+    resized_heatmaps = torch.nn.functional.interpolate(heatmaps, size=img_size, mode='bilinear', align_corners=False)
+
+    # Get indices of max values in the aggregated heatmaps
+    B, K, H, W = resized_heatmaps.shape
+    flat = resized_heatmaps.view(B, K, -1)  # [B, K, HxW]
+
+    max_idx = flat.argmax(dim=2)
+
+    y = max_idx // W
+    x = max_idx % W
+
+    predicted_coords = torch.stack((x, y), dim=2)
+    assert predicted_coords.shape == part_gts.shape
+
+    # Compute euclidean distance
+    diff = part_gts.float() - predicted_coords.float()
+    dist = torch.norm(diff, dim=2)  # [B, K]
+
+    # Set distance of not present parts to -1
+    dist[~valid_mask] = -1
+
+    for i in range(dist.shape[0]):
+        sub_res = dict(zip(list(part_dict.values()), dist[i].tolist()))
+        collector_list.append(sub_res)
+
+    return predicted_coords, dist, resized_heatmaps, aggregated_scores
+
+
 def compute_localization_accuracy(
     pre_attri: torch.FloatTensor,
     attention: torch.FloatTensor,
     bounding_box_per_part: torch.IntTensor,
     part_gts:torch.IntTensor,
     part_dict: Dict[str, int],
-    part_attribute_mapping_tensor: Dict[str, torch.IntTensor], 
+    part_attribute_mapping_tensor: Dict[str, torch.IntTensor],
     collector_list: List[Dict[str, float]],
     img_size: int = 299,
 ):
@@ -117,7 +201,7 @@ def compute_localization_accuracy(
             part_attribute_mapping: Mapping from CUB parts to relative attribute IDs. Amount of IDs should be A.
             collector_list: List to collect the mIoU results into.
             img_size: The image size.
-        
+
         Returns:
             TODO
     """
@@ -133,21 +217,21 @@ def compute_localization_accuracy(
     for part in part_dict.values():
         #take argmax of each part group
         subset = pre_attri[:, part_attribute_mapping_tensor[part]]
-        
+
         argmax_in_subset = subset.argmax(dim=1)
         result = part_attribute_mapping_tensor[part][argmax_in_subset] #now res should be batchsize shape
-        
+
         argmax_per_part.append(result)
 
         max_score = pre_attri[torch.arange(pre_attri.shape[0]), result]  # [batch_size]
         max_scores_per_part.append(max_score)
-        
+
 
     max_scores_per_part = torch.stack(max_scores_per_part).t()
 
     # Create a mask to track which part bounding boxes are non-empty
     valid_mask = (bounding_box_per_part.sum(dim=-1) != 0)  # [B, K]
-    
+
     #part is [0, 0] if it doesnt exist
     valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
 
@@ -157,7 +241,7 @@ def compute_localization_accuracy(
     idx = idx.t()  # [B, K]
     batch_indices = torch.arange(attention.shape[0]).unsqueeze(1)
     heatmaps = attention[batch_indices, idx] # [B, K, H, W] --> e.g. for inception: [B, 15, 8, 8]
-    
+
     # Resize heatmaps to image size
     resized_heatmaps = torch.nn.functional.interpolate(heatmaps, size=img_size, mode='bilinear', align_corners=False)
 
