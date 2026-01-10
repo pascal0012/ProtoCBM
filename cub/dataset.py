@@ -470,12 +470,13 @@ class SUBDataset(Dataset):
     combinations of known concepts (birds with substituted attributes).
     """
 
-    def __init__(self, data_dir: str, transform=None, limit: int = None):
+    def __init__(self, data_dir: str, transform=None, limit: int = None, only_cub_attributes: bool = True):
         """
         Args:
             data_dir: Path to the local SUB dataset directory containing parquet files
             transform: Image transforms to apply
             limit: Optional limit on number of samples (for debugging)
+            only_cub_attributes: If True, only include samples where the attribute is also in CUB's CBM-selected attributes
         """
         self.data_dir = data_dir
         self.transform = transform
@@ -496,7 +497,7 @@ class SUBDataset(Dataset):
                 self.dataset = self.dataset['test']
         else:
             # Download from HuggingFace
-            print(f"Downloading SUB dataset from HuggingFace...")
+            print("Downloading SUB dataset from HuggingFace...")
             self.dataset = load_dataset("Jessica-bader/SUB", split="test")
             # Save locally for future use
             os.makedirs(data_dir, exist_ok=True)
@@ -506,6 +507,18 @@ class SUBDataset(Dataset):
         # Get label mappings
         self.bird_names = self.dataset.features['bird_label'].names
         self.attr_names = self.dataset.features['attr_label'].names
+
+        # Filter to only include samples with attributes that exist in CUB's CBM-selected attributes
+        if only_cub_attributes:
+            self.valid_attr_indices, self.sub_to_cbm_attr_map = self._compute_valid_cub_attributes()
+            # Filter dataset to only include samples with valid attributes
+            valid_indices = [i for i, sample in enumerate(self.dataset) if sample['attr_label'] in self.valid_attr_indices]
+            self.dataset = self.dataset.select(valid_indices)
+            print(f"Filtered SUB dataset to {len(self.dataset)} samples with valid CUB attributes "
+                  f"(from {len(self.valid_attr_indices)} valid attribute types)")
+        else:
+            self.valid_attr_indices = None
+            self.sub_to_cbm_attr_map = None
 
         # Apply limit if specified
         if limit is not None:
@@ -539,6 +552,56 @@ class SUBDataset(Dataset):
     def get_attr_name(self, label_idx):
         """Get attribute name from label index."""
         return self.attr_names[label_idx]
+
+    def _compute_valid_cub_attributes(self):
+        """
+        Compute which SUB attribute indices are valid (exist in CUB's CBM-selected attributes).
+
+        Returns:
+            valid_attr_indices: Set of SUB attribute indices that are valid
+            sub_to_cbm_attr_map: Dict mapping SUB attribute index to CBM attribute index
+        """
+        import pandas as pd
+        from utils_protocbm.mappings import CBM_SELECTED_CUB_ATTRIBUTE_IDS
+
+        # Get SUB attribute names and convert format (-- to ::)
+        feat_names = list(map(lambda x: x.replace('--', '::'), self.attr_names))
+
+        # Load CUB attribute mapping (1-indexed in file, convert to 0-indexed dict)
+        cub_attr_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                     'data/CUB_200_2011/attributes/attributes.txt')
+        idx_attr = pd.read_csv(cub_attr_path, header=None, sep=' ')[1].to_dict()
+        attr_idx = {v: k for k, v in idx_attr.items()}
+
+        # Map SUB attributes to CUB attribute indices
+        sub_to_cub_index = [attr_idx.get(x, None) for x in feat_names]
+
+        # Find valid SUB attribute indices (those that exist in CUB and are CBM-selected)
+        valid_attr_indices = set()
+        sub_to_cbm_attr_map = {}
+
+        for sub_idx, cub_idx in enumerate(sub_to_cub_index):
+            if cub_idx is not None and cub_idx in CBM_SELECTED_CUB_ATTRIBUTE_IDS:
+                valid_attr_indices.add(sub_idx)
+                cbm_idx = CBM_SELECTED_CUB_ATTRIBUTE_IDS.index(cub_idx)
+                sub_to_cbm_attr_map[sub_idx] = cbm_idx
+
+        return valid_attr_indices, sub_to_cbm_attr_map
+
+    def get_cbm_attr_index(self, sub_attr_idx):
+        """
+        Get the CBM attribute index for a given SUB attribute index.
+        Only works when only_cub_attributes=True was used during initialization.
+
+        Args:
+            sub_attr_idx: The SUB dataset attribute index
+
+        Returns:
+            The corresponding CBM attribute index, or None if not valid
+        """
+        if self.sub_to_cbm_attr_map is None:
+            return None
+        return self.sub_to_cbm_attr_map.get(sub_attr_idx, None)
 
 
 # TODO: load pkl from path + corresponding file name
