@@ -35,7 +35,7 @@ def eval_sub(args):
     model.eval()
 
     # Get transforms for the model
-    transform, _, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
+    transform = get_eval_transform_for_model(model, args)[0]
 
     # Load SUB dataset
     sub_data_dir = getattr(args, 'sub_data_dir', os.path.join(BASE_DIR, 'data/SUB'))
