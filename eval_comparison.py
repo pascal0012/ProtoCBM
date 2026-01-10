@@ -21,23 +21,10 @@ from localization.localization_accuracy import (
     calculate_average_partwise_localization_distance,
 )
 
-from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS
 from utils_protocbm.eval_utils import LocalizationMeter, get_localization_loader
-from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, model_by_mode, gather_args, prepare_model
-
-
-def create_model(args):
-    if args.model_name == "protocbm":
-        model = model_by_mode(args)
-    elif args.model_name == "cbm":
-        model = model_by_mode(args)
-    elif args.model_name == "apn":
-        model = load_apn_baseline(args)
-    else:
-        raise ValueError("")
-    return model
+from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, gather_args, prepare_model, create_model
 
 
 def eval(args):
