@@ -7,7 +7,7 @@ from torchvision import transforms
 from typing import List
 
 from cub.config import BASE_DIR
-from cub.dataset import CUBLocalizationDataset
+from cub.dataset import CUBLocalizationDataset, SUBDataset
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics
 
 
@@ -88,15 +88,54 @@ def get_localization_loader(model: nn.Module, data_dir: str, split_dir: str, arg
     data_dir = os.path.join(BASE_DIR, data_dir)
     dataset = CUBLocalizationDataset(pkl_path, data_dir, img_size, transform, mask_transform, cbm_attributes="cbm" in args.model_name)
     loader = DataLoader(
-        dataset, 
-        batch_size=args.batch_size, 
-        shuffle=False, 
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
         drop_last=False,
-        num_workers=2,  
-        pin_memory=True, 
+        num_workers=2,
+        pin_memory=True,
         persistent_workers=True,
     )
     return loader, transform_mean, transform_std, img_size
+
+
+def get_sub_loader(model: nn.Module, args: Namespace):
+    """
+    Get data loader for the SUB (Synthetic Attribute Substitutions) benchmark dataset.
+
+    Args:
+        model: The model to evaluate (used to determine image size and transforms)
+        args: Namespace with sub_data_dir, batch_size, and other settings
+
+    Returns:
+        loader: DataLoader for SUB dataset
+        transform_mean: Mean used for normalization
+        transform_std: Std used for normalization
+        img_size: Image size
+        dataset: The SUB dataset object (for accessing metadata)
+    """
+    # Get transforms (reuse existing transform logic)
+    transform, _, transform_mean, transform_std, img_size = get_eval_transform_for_model(model, args)
+
+    # Get SUB data directory
+    sub_data_dir = getattr(args, 'sub_data_dir', os.path.join(BASE_DIR, 'data/SUB'))
+    sub_data_dir = os.path.join(BASE_DIR, sub_data_dir) if not os.path.isabs(sub_data_dir) else sub_data_dir
+    sub_limit = getattr(args, 'sub_limit', None)
+
+    # Create dataset
+    dataset = SUBDataset(sub_data_dir, transform=transform, limit=sub_limit)
+
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=2,
+        pin_memory=True,
+        persistent_workers=True,
+    )
+
+    return loader, transform_mean, transform_std, img_size, dataset
 
 
 class LocalizationMeter():

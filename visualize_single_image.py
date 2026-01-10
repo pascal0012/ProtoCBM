@@ -24,9 +24,8 @@ from localization.localization_accuracy import (
     compute_localization_accuracy,
     compute_localization_accuracy_aggregated,
 )
-from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
-from utils_protocbm.train_utils import model_by_mode
+from utils_protocbm.train_utils import create_model
 from utils_protocbm.eval_utils import get_localization_loader
 import yaml
 
@@ -94,19 +93,6 @@ def dict_to_namespace(d):
     for key, value in d.items():
         setattr(namespace, key, value)
     return namespace
-
-
-def create_model(args):
-    """Create and load the model."""
-    if args.model_name == "protocbm":
-        model = model_by_mode(args)
-    elif args.model_name == "cbm":
-        model = model_by_mode(args)
-    elif args.model_name == "apn":
-        model = load_apn_baseline(args)
-    else:
-        raise ValueError(f"Unknown model name: {args.model_name}")
-    return model
 
 
 def load_and_preprocess_image(image_path, transform, device):

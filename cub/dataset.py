@@ -20,6 +20,10 @@ from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
 from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS
 from cub.config import BASE_DIR, N_ATTRIBUTES
 
+# SUB Dataset constants (from HuggingFace Jessica-bader/SUB)
+SUB_N_BIRD_CLASSES = 33
+SUB_N_ATTRIBUTES = 14
+
 
 class CUBDataset(Dataset):
     """
@@ -459,6 +463,86 @@ class CUBLocalizationDataset(Dataset):
                 bb_info = [float(x) for x in bb_info]
                 
                 self.imgID_to_birdBB[int(id_str)] = bb_info
+
+
+class SUBDataset(Dataset):
+    """
+    Dataset for the SUB (Synthetic Attribute Substitutions) benchmark dataset.
+    From HuggingFace: Jessica-bader/SUB
+
+    This dataset tests concept-based models' ability to generalize to novel
+    combinations of known concepts (birds with substituted attributes).
+    """
+
+    def __init__(self, data_dir: str, transform=None, limit: int = None):
+        """
+        Args:
+            data_dir: Path to the local SUB dataset directory containing parquet files
+            transform: Image transforms to apply
+            limit: Optional limit on number of samples (for debugging)
+        """
+        self.data_dir = data_dir
+        self.transform = transform
+
+        # Try to load from HuggingFace datasets library
+        try:
+            from datasets import load_from_disk, load_dataset
+        except ImportError:
+            raise ImportError(
+                "The 'datasets' library is required for SUB dataset. "
+                "Install with: pip install datasets"
+            )
+
+        # Load dataset from local disk or HuggingFace
+        if os.path.exists(data_dir):
+            self.dataset = load_from_disk(data_dir)
+            if isinstance(self.dataset, dict):
+                self.dataset = self.dataset['test']
+        else:
+            # Download from HuggingFace
+            print(f"Downloading SUB dataset from HuggingFace...")
+            self.dataset = load_dataset("Jessica-bader/SUB", split="test")
+            # Save locally for future use
+            os.makedirs(data_dir, exist_ok=True)
+            self.dataset.save_to_disk(data_dir)
+            print(f"Dataset saved to {data_dir}")
+
+        # Get label mappings
+        self.bird_names = self.dataset.features['bird_label'].names
+        self.attr_names = self.dataset.features['attr_label'].names
+
+        # Apply limit if specified
+        if limit is not None:
+            self.dataset = self.dataset.select(range(min(limit, len(self.dataset))))
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        sample = self.dataset[idx]
+
+        # Get image (PIL Image from HuggingFace)
+        img = sample['image']
+        if not isinstance(img, Image.Image):
+            img = Image.open(img).convert('RGB')
+        else:
+            img = img.convert('RGB')
+
+        if self.transform:
+            img = self.transform(img)
+
+        bird_label = sample['bird_label']
+        attr_label = sample['attr_label']
+
+        return img, bird_label, attr_label
+
+    def get_bird_name(self, label_idx):
+        """Get bird species name from label index."""
+        return self.bird_names[label_idx]
+
+    def get_attr_name(self, label_idx):
+        """Get attribute name from label index."""
+        return self.attr_names[label_idx]
 
 
 # TODO: load pkl from path + corresponding file name

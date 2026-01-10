@@ -56,6 +56,7 @@ def compute_localization_accuracy_without_argmaxing(
     # Compute distance per attribute (for attributes that belong to a part)
     dist_attr = torch.zeros(B, A, device=attention.device)
 
+    # For each attribute, compute distance to its part GT
     for a in range(A):
         part_idx = attr_to_part[a].item()
         if part_idx == -1:
@@ -77,6 +78,7 @@ def compute_localization_accuracy_without_argmaxing(
         sub_dists = dist_attr[:, attrs]  # [B, n_attr]
 
         # choose min distance among attributes (you may change to mean/max)
+        # choose keypoint of attribute wiht min distance from all attributes of that part
         min_dists = sub_dists.min(dim=1).values
         dist_per_part[:, part_idx] = min_dists
 
