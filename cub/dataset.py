@@ -20,10 +20,6 @@ from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
 from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS
 from cub.config import BASE_DIR, N_ATTRIBUTES
 
-# SUB Dataset constants (from HuggingFace Jessica-bader/SUB)
-SUB_N_BIRD_CLASSES = 33
-SUB_N_ATTRIBUTES = 14
-
 
 class CUBDataset(Dataset):
     """
