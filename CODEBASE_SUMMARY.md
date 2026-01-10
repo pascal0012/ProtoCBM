@@ -218,12 +218,10 @@ data/
 conda env create -f environment.yml
 conda activate protocbm
 
-# 2. Download data (see Data Setup section)
-
-# 3. Train model
+# 2. Train model
 python train_protocbm.py --config configs/protocbm.yaml
 
-# 4. Evaluate with comparison
+# 3. Evaluate with comparison
 python eval_comparison.py --config configs/eval_protocbm_comparison.yaml
 
 # Or submit to SLURM
