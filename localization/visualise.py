@@ -1,3 +1,4 @@
+from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from PIL import Image, ImageDraw, ImageFont
@@ -438,17 +439,13 @@ def save_individual_activation_maps(
     img_path = source_paths[batch_idx]
 
     # Extract image identifier from path
-    img_name = "_".join(img_path.split(os.sep)[-2:]).rstrip(".jpg")
+    img_path_obj = Path(img_path)
+    img_name = f"{img_path_obj.parent.name}_{img_path_obj.stem}"
 
     # Only have part segmentations for first 70 classes
-    # Try to extract class ID, skip if it's not a standard CUB dataset format
-    try:
-        class_id = int(img_name[:3])
-        if class_id > 70:
-            return
-    except (ValueError, IndexError):
-        # Not a standard CUB format (e.g., custom image), continue anyway
-        pass
+    class_id = int(img_name[:3])
+    if class_id > 70:
+        return
 
     # Denormalize image
     img_np = img.permute(1, 2, 0).cpu().numpy()  # H_img x W_img x C
@@ -501,7 +498,7 @@ def save_individual_activation_maps(
             fig2, ax2 = plt.subplots(1, 1, figsize=(6, 6))
             ax2.imshow(attn_mask_original, cmap='jet')
             ax2.axis('off')
-            ax2.set_title(f'{attr_name}\n(Original Size: {H_map}x{W_map})', fontsize=10)
+            ax2.set_title(f'{attr_name}\n(highest)', fontsize=10)
 
             plt.tight_layout()
             save_file_original = os.path.join(part_folder, f"{img_name}_{safe_attr_name}_original.png")
@@ -547,17 +544,13 @@ def save_aggregated_activation_maps(
     img_path = source_paths[batch_idx]
 
     # Extract image identifier from path
-    img_name = "_".join(img_path.split(os.sep)[-2:]).rstrip(".jpg")
+    img_path_obj = Path(img_path)
+    img_name = f"{img_path_obj.parent.name}_{img_path_obj.stem}"
 
     # Only have part segmentations for first 70 classes
-    # Try to extract class ID, skip if it's not a standard CUB dataset format
-    try:
-        class_id = int(img_name[:3])
-        if class_id > 70:
-            return
-    except (ValueError, IndexError):
-        # Not a standard CUB format (e.g., custom image), continue anyway
-        pass
+    class_id = int(img_name[:3])
+    if class_id > 70:
+        return
 
     # Denormalize image
     img_np = img.permute(1, 2, 0).cpu().numpy()  # H_img x W_img x C
