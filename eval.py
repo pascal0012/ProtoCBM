@@ -22,29 +22,22 @@ from localization.localization_accuracy import (
     calculate_average_partwise_localization_distance,
     compute_localization_accuracy_without_argmaxing
 )
-from models.apn_baseline import load_apn_baseline
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS
 from utils_protocbm.eval_utils import LocalizationMeter, get_localization_loader
-from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, prepare_model, model_by_mode, gather_args
-
-
-def create_model(args):
-    if args.model_name == "protocbm":
-        model = model_by_mode(args)
-    elif args.model_name == "cbm":
-        model = model_by_mode(args)
-    elif args.model_name == "apn":
-        model = load_apn_baseline(args)
-    else:
-        raise ValueError("")
-    return model
+from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, prepare_model, create_model, gather_args
 
 
 def eval(args):
     """
         TODO
     """
+
+    # Set random seeds for reproducibility
+    torch.manual_seed(42)
+    np.random.seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
 
     # Create the model and load weights
     model = create_model(args)
@@ -113,9 +106,13 @@ def eval(args):
 
             # Visualise part segmentations with saliency
             if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
+                # Always visualize the first image in each batch for consistency
+                batch_idx = 0
+
                 visualise_part_segmentations(
                     inputs, saliency_maps_upsampled, seg_masks_per_attribute,
-                    attribute_names, iou_scores, 
+                    attribute_names, iou_scores,
+                    batch_idx=batch_idx,
                     source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg
                 )
 
@@ -126,7 +123,8 @@ def eval(args):
                                              dists,
                                              data_idx,
                                              list(loader.dataset.part_dict.values()),
-                                             t_mean=transform_mean, 
+                                             batch_idx=batch_idx,
+                                             t_mean=transform_mean,
                                              t_std=transform_std,
                                              save_path=args.out_dir_part_seg
                 )
@@ -151,7 +149,9 @@ def eval(args):
 
 
 if __name__ == '__main__':
-    torch.backends.cudnn.benchmark=True
+    # Set deterministic behavior for reproducibility
+    torch.backends.cudnn.benchmark=False
+    torch.backends.cudnn.deterministic=True
 
     args = gather_args()
 

@@ -15,6 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from losses import ProtoModLoss
 from models.concept_mapper import ProtoMod
 from models.models import ModelCtoY, ModelXtoC, ModelXtoCtoY, ModelXtoY
+from models.apn_baseline import load_apn_baseline
 
 
 def prepare_model(
@@ -134,6 +135,23 @@ def model_by_mode(args: Namespace) -> nn.Module:
         )
         print("Continuing with checkpoint:", args.checkpoint)
 
+    return model
+
+
+def create_model(args: Namespace) -> nn.Module:
+    """
+    Create and return a model based on the model_name in args.
+
+    Supports: protocbm, cbm, apn
+    """
+    if args.model_name == "protocbm":
+        model = model_by_mode(args)
+    elif args.model_name == "cbm":
+        model = model_by_mode(args)
+    elif args.model_name == "apn":
+        model = load_apn_baseline(args)
+    else:
+        raise ValueError(f"Unknown model name: {args.model_name}")
     return model
 
 
