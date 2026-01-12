@@ -2,11 +2,19 @@
 Evaluate trained models on the SUB dataset for ATTRIBUTE prediction accuracy.
 This is adapted from: https://github.com/ExplainableML/sub/blob/main/CBM_testing/test_ind_cbm_example.py
 
-The script tests:
-1. Whether the model correctly predicts the NEW (substituted) attribute as present
-2. Optionally (--test_for_complement): Whether the ORIGINAL attribute is predicted as NOT present
+The SUB benchmark tests whether concept-based models learn actual visual concepts
+or just memorize class-attribute correlations. It does this by showing images where
+a bird's attribute has been visually substituted (e.g., a Cardinal with blue breast
+instead of red).
 
-This differs from eval_sub.py which evaluates bird CLASS prediction accuracy.
+The script evaluates:
+1. NEW attribute detection: Does the model see the substituted attribute as PRESENT?
+   (High accuracy = model adapts to visual evidence)
+2. ORIGINAL attribute detection: Does the model see the original attribute as ABSENT?
+   (High accuracy = model doesn't hallucinate based on class priors)
+
+A model that truly learns visual concepts should score high on both metrics.
+A model that memorizes class-attribute correlations will score low on both.
 """
 
 import os
@@ -57,6 +65,7 @@ def create_sub_to_cbm_mapping():
 
     Returns:
         sub_attr_to_cbm_idx: Dict mapping SUB attr name -> CBM index (0-111)
+        cbm_attr_names: List of CBM attribute names
     """
     cbm_attr_names = get_cbm_attribute_names()
 
@@ -72,43 +81,56 @@ def create_sub_to_cbm_mapping():
     return sub_attr_to_cbm_idx, cbm_attr_names
 
 
-def get_base_attributes_for_bird(bird_name, val_pkl_path, img_dir):
+def normalize_bird_name(name):
     """
-    Get the base (original) attribute labels for a bird class from CUB validation set.
+    Normalize bird name for matching between SUB and CUB datasets.
+    SUB uses names like "White_breasted_Nuthatch" or "White breasted Nuthatch"
+    CUB folder names use "White_breasted_Nuthatch"
+    """
+    # Replace spaces with underscores and convert to lowercase for comparison
+    return name.replace(" ", "_").lower()
+
+
+def build_bird_class_attribute_cache(val_pkl_path, img_dir):
+    """
+    Build a cache mapping bird class names to their original CBM attribute labels.
+
+    This is done once at the start to avoid repeated file system lookups.
 
     Args:
-        bird_name: Bird species name (e.g., "Cardinal")
-        val_pkl_path: Path to validation pkl file
-        img_dir: Path to CUB images directory
+        val_pkl_path: Path to validation pkl file with attribute labels
+        img_dir: Path to CUB images directory (for class name mapping)
 
     Returns:
-        attribute_label: List of 112 binary attribute labels for this bird class
+        bird_to_attrs: Dict mapping normalized bird name -> list of 112 binary attribute labels
     """
-    # Find the class index for this bird name
+    # Build mapping from class index to bird name
+    class_idx_to_bird_name = {}
     folders = os.listdir(img_dir)
-    bird_class_idx = None
     for folder in folders:
         parts = folder.split(".")
         if len(parts) >= 2:
-            # Handle names like "017.Cardinal" -> "Cardinal"
-            folder_bird_name = parts[1].replace("_", " ")
-            if bird_name.replace("_", " ") == folder_bird_name or bird_name == parts[1]:
-                bird_class_idx = int(parts[0]) - 1  # Convert to 0-indexed
-                break
+            class_idx = int(parts[0]) - 1  # Convert to 0-indexed
+            bird_name = parts[1]  # e.g., "White_breasted_Nuthatch"
+            class_idx_to_bird_name[class_idx] = bird_name
 
-    if bird_class_idx is None:
-        return None
-
-    # Load validation data and find an example of this class
+    # Load validation data and build bird -> attributes mapping
     data = pickle.load(open(val_pkl_path, "rb"))
+
+    bird_to_attrs = {}
     for d in data:
-        if d["class_label"] == bird_class_idx:
-            return d["attribute_label"]
+        class_idx = d["class_label"]
+        if class_idx in class_idx_to_bird_name:
+            bird_name = class_idx_to_bird_name[class_idx]
+            # Store with normalized key for reliable matching
+            normalized_name = normalize_bird_name(bird_name)
+            if normalized_name not in bird_to_attrs:
+                bird_to_attrs[normalized_name] = d["attribute_label"]
 
-    return None
+    return bird_to_attrs
 
 
-def find_original_attribute_idx(bird_name, changed_attr_sub_name, cbm_attr_names, val_pkl_path, img_dir):
+def find_original_attribute_idx(bird_name, changed_attr_sub_name, cbm_attr_names, bird_to_attrs):
     """
     Find which original attribute was replaced by the changed attribute.
 
@@ -116,11 +138,10 @@ def find_original_attribute_idx(bird_name, changed_attr_sub_name, cbm_attr_names
     "has_breast_color::blue", this function returns the CBM index for "has_breast_color::red".
 
     Args:
-        bird_name: Bird species name
+        bird_name: Bird species name (e.g., "Cardinal")
         changed_attr_sub_name: SUB attribute name that was changed (e.g., "has_breast_color--blue")
         cbm_attr_names: List of CBM attribute names
-        val_pkl_path: Path to validation pkl file
-        img_dir: Path to CUB images directory
+        bird_to_attrs: Cached dict mapping normalized bird name -> attribute labels
 
     Returns:
         CBM index of the original attribute that was present before substitution, or None
@@ -131,14 +152,15 @@ def find_original_attribute_idx(bird_name, changed_attr_sub_name, cbm_attr_names
     # Find all CBM attributes of the same type
     candidate_indices = []
     for cbm_idx, cub_name in enumerate(cbm_attr_names):
-        if attr_type in cub_name:
+        if cub_name.startswith(attr_type + "::"):
             candidate_indices.append(cbm_idx)
 
     if not candidate_indices:
         return None
 
-    # Get the base attributes for this bird
-    base_attrs = get_base_attributes_for_bird(bird_name, val_pkl_path, img_dir)
+    # Get the base attributes for this bird from cache (using normalized name)
+    normalized_name = normalize_bird_name(bird_name)
+    base_attrs = bird_to_attrs.get(normalized_name)
     if base_attrs is None:
         return None
 
@@ -182,6 +204,10 @@ def get_attribute_predictions(model, inputs, device):
 def eval_sub_attributes(args):
     """
     Evaluate model on SUB dataset for attribute prediction accuracy.
+
+    Tests both:
+    1. New attribute detection (should predict substituted attribute as PRESENT)
+    2. Original attribute detection (should predict original attribute as ABSENT)
     """
     # Create the model and load weights
     model = create_model(args)
@@ -216,30 +242,60 @@ def eval_sub_attributes(args):
     sub_attr_to_cbm_idx, cbm_attr_names = create_sub_to_cbm_mapping()
 
     # Paths for getting base attributes
-    val_pkl_path = os.path.join(BASE_DIR, args.data_dir, "val.pkl")
-    img_dir = os.path.join(BASE_DIR, "data/CUB_200_2011/images")
+    # Derive val.pkl path from split_dir (which points to test.pkl in the processed dir)
+    if hasattr(args, 'split_dir') and args.split_dir:
+        split_dir_base = os.path.dirname(args.split_dir)
+        val_pkl_path = os.path.join(BASE_DIR, split_dir_base, "val.pkl")
+    else:
+        # Fallback: assume data_dir contains val.pkl (for training configs)
+        val_pkl_path = os.path.join(BASE_DIR, args.data_dir, "val.pkl")
+
+    # Image dir for bird class name mapping
+    if hasattr(args, 'image_dir') and args.image_dir:
+        img_dir = os.path.join(BASE_DIR, args.image_dir)
+    else:
+        img_dir = os.path.join(BASE_DIR, "data/CUB_200_2011/images")
+
+    # Build cache of bird class -> original attributes
+    print(f"Loading validation attributes from: {val_pkl_path}")
+    print(f"Loading bird class names from: {img_dir}")
+
+    if not os.path.exists(val_pkl_path):
+        raise FileNotFoundError(f"val.pkl not found at {val_pkl_path}. Check your split_dir or data_dir config.")
+    if not os.path.exists(img_dir):
+        raise FileNotFoundError(f"Image directory not found at {img_dir}. Check your image_dir config.")
+
+    print("Building bird class attribute cache...")
+    bird_to_attrs = build_bird_class_attribute_cache(val_pkl_path, img_dir)
+    print(f"Cached attributes for {len(bird_to_attrs)} bird classes")
 
     # Tracking metrics
     total_samples = 0
-    new_attr_correct = 0  # Correctly predicted the NEW attribute as present
-    old_attr_correct = 0  # Correctly predicted the OLD attribute as absent (complement test)
-    old_attr_total = 0    # Total samples where we could find the old attribute
+    new_attr_correct = 0      # Correctly predicted the NEW attribute as PRESENT
+    original_attr_correct = 0  # Correctly predicted the ORIGINAL attribute as ABSENT
+    original_attr_total = 0    # Total samples where we could find the original attribute
 
     # Per-attribute tracking
     per_attr_new_correct = torch.zeros(N_ATTRIBUTES_CBM)
     per_attr_new_total = torch.zeros(N_ATTRIBUTES_CBM)
-    per_attr_old_correct = torch.zeros(N_ATTRIBUTES_CBM)
-    per_attr_old_total = torch.zeros(N_ATTRIBUTES_CBM)
+    per_attr_original_correct = torch.zeros(N_ATTRIBUTES_CBM)
+    per_attr_original_total = torch.zeros(N_ATTRIBUTES_CBM)
 
-    test_complement = getattr(args, "test_for_complement", False)
+    # Track samples where model gets both right (adapts) vs both wrong (memorizes)
+    both_correct = 0  # Adapts: sees new as present AND original as absent
+    both_wrong = 0    # Memorizes: sees new as absent AND original as present
+
+    # Track unmatched items for debugging
+    unmatched_birds = set()
+    unmatched_attrs = set()
 
     with torch.no_grad():
-        for batch_idx, (inputs, bird_labels, attr_labels) in enumerate(tqdm(loader, desc="Evaluating SUB Attributes")):
+        for inputs, bird_labels, attr_labels in tqdm(loader, desc="Evaluating SUB Attributes"):
             inputs = inputs.to(device)
             batch_size = inputs.size(0)
 
             # Get attribute predictions
-            attr_preds, attr_probs = get_attribute_predictions(model, inputs, device)
+            attr_preds, _ = get_attribute_predictions(model, inputs, device)
             attr_preds = attr_preds.cpu()
 
             for i in range(batch_size):
@@ -248,44 +304,154 @@ def eval_sub_attributes(args):
                 sub_attr_name = dataset.attr_names[sub_attr_idx]
                 bird_name = dataset.bird_names[bird_labels[i].item()]
 
-                # Map to CBM index
-                cbm_idx = sub_attr_to_cbm_idx.get(sub_attr_name)
-                if cbm_idx is None:
+                # Map NEW attribute to CBM index
+                new_cbm_idx = sub_attr_to_cbm_idx.get(sub_attr_name)
+                if new_cbm_idx is None:
+                    unmatched_attrs.add(sub_attr_name)
                     continue
 
                 total_samples += 1
-                per_attr_new_total[cbm_idx] += 1
+                per_attr_new_total[new_cbm_idx] += 1
 
-                # Test 1: Is the NEW (substituted) attribute predicted as present?
-                if attr_preds[i, cbm_idx] == 1:
+                # Test 1: Is the NEW (substituted) attribute predicted as PRESENT?
+                new_is_correct = attr_preds[i, new_cbm_idx] == 1
+                if new_is_correct:
                     new_attr_correct += 1
-                    per_attr_new_correct[cbm_idx] += 1
+                    per_attr_new_correct[new_cbm_idx] += 1
 
-                # Test 2 (optional): Is the ORIGINAL attribute predicted as absent?
-                if test_complement:
-                    old_cbm_idx = find_original_attribute_idx(
-                        bird_name, sub_attr_name, cbm_attr_names, val_pkl_path, img_dir
-                    )
-                    if old_cbm_idx is not None:
-                        old_attr_total += 1
-                        per_attr_old_total[old_cbm_idx] += 1
-                        # Original should NOT be present (pred == 0 is correct)
-                        if attr_preds[i, old_cbm_idx] == 0:
-                            old_attr_correct += 1
-                            per_attr_old_correct[old_cbm_idx] += 1
+                # Test 2: Is the ORIGINAL attribute predicted as ABSENT?
+                original_cbm_idx = find_original_attribute_idx(
+                    bird_name, sub_attr_name, cbm_attr_names, bird_to_attrs
+                )
+
+                if original_cbm_idx is None:
+                    unmatched_birds.add(bird_name)
+                else:
+                    original_attr_total += 1
+                    per_attr_original_total[original_cbm_idx] += 1
+
+                    # Original should NOT be present (pred == 0 is correct)
+                    original_is_correct = attr_preds[i, original_cbm_idx] == 0
+                    if original_is_correct:
+                        original_attr_correct += 1
+                        per_attr_original_correct[original_cbm_idx] += 1
+
+                    # Track adaptation vs memorization
+                    if new_is_correct and original_is_correct:
+                        both_correct += 1  # Model adapts to visual evidence
+                    elif not new_is_correct and not original_is_correct:
+                        both_wrong += 1  # Model memorizes class-attribute correlations
 
     return {
         "total_samples": total_samples,
         "new_attr_correct": new_attr_correct,
-        "old_attr_correct": old_attr_correct,
-        "old_attr_total": old_attr_total,
+        "original_attr_correct": original_attr_correct,
+        "original_attr_total": original_attr_total,
+        "both_correct": both_correct,
+        "both_wrong": both_wrong,
         "per_attr_new_correct": per_attr_new_correct,
         "per_attr_new_total": per_attr_new_total,
-        "per_attr_old_correct": per_attr_old_correct,
-        "per_attr_old_total": per_attr_old_total,
+        "per_attr_original_correct": per_attr_original_correct,
+        "per_attr_original_total": per_attr_original_total,
         "cbm_attr_names": cbm_attr_names,
-        "test_complement": test_complement,
+        "unmatched_birds": unmatched_birds,
+        "unmatched_attrs": unmatched_attrs,
     }
+
+
+def print_results(results):
+    """Print formatted evaluation results."""
+    total = results["total_samples"]
+    new_correct = results["new_attr_correct"]
+    original_correct = results["original_attr_correct"]
+    original_total = results["original_attr_total"]
+    both_correct = results["both_correct"]
+    both_wrong = results["both_wrong"]
+    unmatched_birds = results["unmatched_birds"]
+    unmatched_attrs = results["unmatched_attrs"]
+
+    print("\n" + "=" * 70)
+    print("SUB BENCHMARK RESULTS")
+    print("=" * 70)
+
+    print(f"\nTotal samples evaluated: {total}")
+    print(f"Samples with original attribute found: {original_total}")
+
+    # Warnings for unmatched items
+    if unmatched_attrs:
+        print(f"\nWARNING: {len(unmatched_attrs)} SUB attributes could not be mapped to CBM:")
+        for attr in sorted(unmatched_attrs)[:5]:  # Show first 5
+            print(f"   - {attr}")
+        if len(unmatched_attrs) > 5:
+            print(f"   ... and {len(unmatched_attrs) - 5} more")
+
+    if unmatched_birds:
+        print(f"\nWARNING: {len(unmatched_birds)} bird classes could not find original attribute:")
+        for bird in sorted(unmatched_birds)[:5]:  # Show first 5
+            print(f"   - {bird}")
+        if len(unmatched_birds) > 5:
+            print(f"   ... and {len(unmatched_birds) - 5} more")
+
+    # Main metrics
+    print("\n" + "-" * 70)
+    print("MAIN METRICS")
+    print("-" * 70)
+
+    new_acc = 100 * new_correct / total if total > 0 else 0
+    print(f"\n1. New Attribute Detection (should predict substituted attr as PRESENT):")
+    print(f"   Accuracy: {new_acc:.2f}% ({new_correct}/{total})")
+
+    original_acc = 100 * original_correct / original_total if original_total > 0 else 0
+    print(f"\n2. Original Attribute Detection (should predict original attr as ABSENT):")
+    print(f"   Accuracy: {original_acc:.2f}% ({original_correct}/{original_total})")
+
+    # Adaptation vs Memorization analysis
+    print("\n" + "-" * 70)
+    print("ADAPTATION vs MEMORIZATION ANALYSIS")
+    print("-" * 70)
+
+    if original_total > 0:
+        adapt_rate = 100 * both_correct / original_total
+        memorize_rate = 100 * both_wrong / original_total
+        mixed_rate = 100 * (original_total - both_correct - both_wrong) / original_total
+
+        print(f"\n   Adapts (new=1, original=0):    {adapt_rate:5.2f}% ({both_correct}/{original_total})")
+        print(f"   Memorizes (new=0, original=1): {memorize_rate:5.2f}% ({both_wrong}/{original_total})")
+        print(f"   Mixed results:                 {mixed_rate:5.2f}% ({original_total - both_correct - both_wrong}/{original_total})")
+
+        print("\n   Interpretation:")
+        print("   - 'Adapts': Model correctly recognizes the visual change")
+        print("   - 'Memorizes': Model ignores visual evidence, relies on class priors")
+        print("   - 'Mixed': Model partially adapts (one metric correct, one wrong)")
+
+    # Per-attribute breakdown
+    print("\n" + "-" * 70)
+    print("PER-ATTRIBUTE BREAKDOWN")
+    print("-" * 70)
+
+    cbm_attr_names = results["cbm_attr_names"]
+    per_new_correct = results["per_attr_new_correct"]
+    per_new_total = results["per_attr_new_total"]
+    per_original_correct = results["per_attr_original_correct"]
+    per_original_total = results["per_attr_original_total"]
+
+    print(f"\n{'Attribute':<45} {'New Det.':<15} {'Orig. Absent':<15}")
+    print("-" * 75)
+
+    for cbm_idx in range(N_ATTRIBUTES_CBM):
+        if per_new_total[cbm_idx] > 0:
+            new_acc = 100 * per_new_correct[cbm_idx] / per_new_total[cbm_idx]
+            new_str = f"{new_acc:5.1f}% ({int(per_new_correct[cbm_idx]):4d}/{int(per_new_total[cbm_idx]):4d})"
+
+            if per_original_total[cbm_idx] > 0:
+                orig_acc = 100 * per_original_correct[cbm_idx] / per_original_total[cbm_idx]
+                orig_str = f"{orig_acc:5.1f}% ({int(per_original_correct[cbm_idx]):4d}/{int(per_original_total[cbm_idx]):4d})"
+            else:
+                orig_str = "N/A"
+
+            print(f"{cbm_attr_names[cbm_idx]:<45} {new_str:<15} {orig_str:<15}")
+
+    print("\n" + "=" * 70)
 
 
 if __name__ == "__main__":
@@ -293,42 +459,9 @@ if __name__ == "__main__":
 
     args = gather_args()
 
-    # Add complement testing flag if not present
-    if not hasattr(args, "test_for_complement"):
-        args.test_for_complement = False
-
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     print("SUB Dataset - Attribute Prediction Evaluation")
-    print("=" * 60 + "\n")
+    print("=" * 70 + "\n")
 
     results = eval_sub_attributes(args)
-
-    print("\n" + "=" * 60)
-    print("RESULTS")
-    print("=" * 60)
-
-    total = results["total_samples"]
-    new_correct = results["new_attr_correct"]
-
-    print(f"\nTotal samples evaluated: {total}")
-    print("\nNew Attribute Detection (should predict substituted attr as PRESENT):")
-    print(f"  Accuracy: {100 * new_correct / total:.2f}% ({new_correct}/{total})")
-
-    if results["test_complement"]:
-        old_total = results["old_attr_total"]
-        old_correct = results["old_attr_correct"]
-        print("\nOriginal Attribute Complement (should predict original attr as ABSENT):")
-        print(f"  Accuracy: {100 * old_correct / old_total:.2f}% ({old_correct}/{old_total})")
-
-    # Per-attribute breakdown for new attribute detection
-    print("\n--- Per-Attribute New Detection Accuracies ---")
-    cbm_attr_names = results["cbm_attr_names"]
-    per_new_correct = results["per_attr_new_correct"]
-    per_new_total = results["per_attr_new_total"]
-
-    for cbm_idx in range(N_ATTRIBUTES_CBM):
-        if per_new_total[cbm_idx] > 0:
-            acc = 100 * per_new_correct[cbm_idx] / per_new_total[cbm_idx]
-            correct = int(per_new_correct[cbm_idx].item())
-            total = int(per_new_total[cbm_idx].item())
-            print(f"  {cbm_attr_names[cbm_idx]}: {acc:.2f}% ({correct}/{total})")
+    print_results(results)
