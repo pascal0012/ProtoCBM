@@ -109,7 +109,17 @@ def eval_sub(args):
     bird_acc = bird_correct / (bird_total + 1e-10)
     attr_acc = attr_correct / (attr_total + 1e-10)
 
-    return class_acc_meter, bird_acc, attr_acc, dataset, valid_attr_names
+    return {
+        "class_acc_meter": class_acc_meter,
+        "bird_acc": bird_acc,
+        "attr_acc": attr_acc,
+        "bird_correct": bird_correct,
+        "bird_total": bird_total,
+        "attr_correct": attr_correct,
+        "attr_total": attr_total,
+        "dataset": dataset,
+        "valid_attr_names": valid_attr_names,
+    }
 
 
 if __name__ == "__main__":
@@ -128,22 +138,29 @@ if __name__ == "__main__":
     print("=" * 60 + "\n")
 
     # Run evaluation
-    class_acc_meter, bird_acc, attr_acc, dataset, valid_attr_names = eval_sub(args)
+    results = eval_sub(args)
 
     print("\n" + "=" * 60)
     print("RESULTS")
     print("=" * 60)
 
-    print(f"\nOverall Bird Classification Accuracy: {class_acc_meter.avg:.2f}%")
+    class_acc_meter = results["class_acc_meter"]
+    total_correct = int(class_acc_meter.sum / 100 * class_acc_meter.count)
+    total_samples = class_acc_meter.count
+    print(f"\nOverall Bird Classification Accuracy: {class_acc_meter.avg:.2f}% ({total_correct}/{total_samples})")
 
-    print(f"\nMean Per-Bird Accuracy: {bird_acc.mean().item() * 100:.2f}%")
-    print(f"Mean Per-Attribute Accuracy: {attr_acc.mean().item() * 100:.2f}%")
+    print(f"\nMean Per-Bird Accuracy: {results['bird_acc'].mean().item() * 100:.2f}%")
+    print(f"Mean Per-Attribute Accuracy: {results['attr_acc'].mean().item() * 100:.2f}%")
 
     print("\n--- Per-Bird Accuracies ---")
-    for i, name in enumerate(dataset.bird_names):
-        print(f"  {name}: {bird_acc[i].item() * 100:.2f}%")
+    for i, name in enumerate(results["dataset"].bird_names):
+        correct = int(results["bird_correct"][i].item())
+        total = int(results["bird_total"][i].item())
+        print(f"  {name}: {results['bird_acc'][i].item() * 100:.2f}% ({correct}/{total})")
 
     print("\n--- Per-Attribute Accuracies ---")
     print("(Correctly predicting the changed attribute)")
-    for i, name in enumerate(valid_attr_names):
-        print(f"  {name}: {attr_acc[i].item() * 100:.2f}%")
+    for i, name in enumerate(results["valid_attr_names"]):
+        correct = int(results["attr_correct"][i].item())
+        total = int(results["attr_total"][i].item())
+        print(f"  {name}: {results['attr_acc'][i].item() * 100:.2f}% ({correct}/{total})")
