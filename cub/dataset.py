@@ -511,14 +511,25 @@ class SUBDataset(Dataset):
         # Filter to only include samples with attributes that exist in CUB's CBM-selected attributes
         if only_cub_attributes:
             self.valid_attr_indices, self.sub_to_cbm_attr_map = self._compute_valid_cub_attributes()
-            # Filter dataset to only include samples with valid attributes
-            valid_indices = [i for i, sample in enumerate(self.dataset) if sample['attr_label'] in self.valid_attr_indices]
-            self.dataset = self.dataset.select(valid_indices)
+            # Use batched filter for fast filtering via Arrow
+            import numpy as np
+            valid_set = self.valid_attr_indices
+            self.dataset = self.dataset.filter(
+                lambda batch: np.isin(batch['attr_label'], list(valid_set)),
+                batched=True,
+                batch_size=2000
+            )
+            # Store mapping from original attr index to filtered index and update attr_names
+            sorted_valid = sorted(self.valid_attr_indices)
+            self.orig_to_filtered_attr = {orig: i for i, orig in enumerate(sorted_valid)}
+            self.filtered_attr_names = [self.attr_names[i] for i in sorted_valid]
             print(f"Filtered SUB dataset to {len(self.dataset)} samples with valid CUB attributes "
                   f"(from {len(self.valid_attr_indices)} valid attribute types)")
         else:
             self.valid_attr_indices = None
             self.sub_to_cbm_attr_map = None
+            self.orig_to_filtered_attr = None
+            self.filtered_attr_names = None
 
         # Apply limit if specified
         if limit is not None:
@@ -602,6 +613,36 @@ class SUBDataset(Dataset):
         if self.sub_to_cbm_attr_map is None:
             return None
         return self.sub_to_cbm_attr_map.get(sub_attr_idx, None)
+
+    def get_filtered_attr_index(self, orig_attr_idx):
+        """
+        Convert original attribute index to filtered (0-indexed contiguous) index.
+        Only works when only_cub_attributes=True was used during initialization.
+
+        Args:
+            orig_attr_idx: The original SUB dataset attribute index
+
+        Returns:
+            The filtered attribute index (0 to num_valid_attrs-1), or None if not valid
+        """
+        if self.orig_to_filtered_attr is None:
+            return orig_attr_idx
+        return self.orig_to_filtered_attr.get(orig_attr_idx, None)
+
+    def get_valid_attr_names(self):
+        """
+        Get attribute names for valid (filtered) attributes only.
+        Returns filtered_attr_names if filtering was applied, otherwise returns all attr_names.
+        """
+        if self.filtered_attr_names is not None:
+            return self.filtered_attr_names
+        return self.attr_names
+
+    def num_valid_attributes(self):
+        """Return the number of valid attributes after filtering."""
+        if self.valid_attr_indices is not None:
+            return len(self.valid_attr_indices)
+        return len(self.attr_names)
 
 
 # TODO: load pkl from path + corresponding file name
