@@ -65,6 +65,12 @@ def eval(args):
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
 
+    # Track keypoint changes between methods
+    total_keypoints = 0
+    changed_keypoints = 0
+    coord_changes = []  # Store the distance between argmax and aggregated predictions
+    dist_improvements = []  # Store how much the distance to GT improved (positive = aggregated is better)
+
     # Optional: Limit number of samples for faster visualization testing
     max_samples = getattr(args, 'max_samples', None)
     total_samples = min(len(loader), max_samples) if max_samples else len(loader)
@@ -108,6 +114,34 @@ def eval(args):
                 scores, saliency_maps, part_bbs, part_gts, loader.dataset.part_dict,
                 loader.dataset.map_part_to_attr_loc_acc, loc_acc_collector_aggregated, img_size=img_size
             )
+
+            # ========== TRACK KEYPOINT CHANGES BETWEEN METHODS ==========
+            # Compare predicted coordinates between argmax and aggregated methods
+            # predicted_coords shape: [B, K, 2] where K is number of parts
+            for b in range(predicted_coords_argmax.shape[0]):
+                for k in range(predicted_coords_argmax.shape[1]):
+                    coord_argmax = predicted_coords_argmax[b, k]  # [2]
+                    coord_agg = predicted_coords_agg[b, k]  # [2]
+                    dist_argmax = dists_argmax[b, k].item()
+                    dist_agg = dists_agg[b, k].item()
+
+                    # Skip invalid keypoints (where GT is not available, distance is typically -1 or very large)
+                    if dist_argmax < 0 or dist_agg < 0:
+                        continue
+
+                    total_keypoints += 1
+
+                    # Calculate distance between the two predicted coordinates
+                    coord_diff = torch.norm(coord_argmax.float() - coord_agg.float()).item()
+                    coord_changes.append(coord_diff)
+
+                    # Check if keypoint changed (threshold: 1 pixel)
+                    if coord_diff > 1.0:
+                        changed_keypoints += 1
+
+                    # Track improvement: positive means aggregated is closer to GT
+                    improvement = dist_argmax - dist_agg
+                    dist_improvements.append(improvement)
 
             # Visualize both methods for comparison (only for selected samples)
             if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
@@ -192,6 +226,45 @@ def eval(args):
     print(f"Mean Localization Distance (Argmax):     {mean_dist_argmax:.4f}")
     print(f"Mean Localization Distance (Aggregated): {mean_dist_agg:.4f}")
     print(f"Improvement: {((mean_dist_argmax - mean_dist_agg) / mean_dist_argmax * 100):.2f}%")
+    print("="*60)
+
+    # ========== KEYPOINT CHANGE STATISTICS ==========
+    print("\n" + "="*60)
+    print("KEYPOINT CHANGE ANALYSIS")
+    print("="*60)
+
+    if total_keypoints > 0:
+        change_percentage = (changed_keypoints / total_keypoints) * 100
+        avg_coord_change = np.mean(coord_changes) if coord_changes else 0.0
+        median_coord_change = np.median(coord_changes) if coord_changes else 0.0
+        max_coord_change = np.max(coord_changes) if coord_changes else 0.0
+
+        avg_improvement = np.mean(dist_improvements) if dist_improvements else 0.0
+        median_improvement = np.median(dist_improvements) if dist_improvements else 0.0
+
+        # Count how many keypoints improved vs worsened
+        improved = sum(1 for d in dist_improvements if d > 0)
+        worsened = sum(1 for d in dist_improvements if d < 0)
+        unchanged = sum(1 for d in dist_improvements if d == 0)
+
+        print(f"Total valid keypoints evaluated:         {total_keypoints}")
+        print(f"Keypoints that changed (>1px):           {changed_keypoints} ({change_percentage:.2f}%)")
+        print(f"Keypoints unchanged:                     {total_keypoints - changed_keypoints} ({100 - change_percentage:.2f}%)")
+        print("-"*60)
+        print("Coordinate Change (distance between argmax and aggregated predictions):")
+        print(f"  Average change:                        {avg_coord_change:.4f} px")
+        print(f"  Median change:                         {median_coord_change:.4f} px")
+        print(f"  Maximum change:                        {max_coord_change:.4f} px")
+        print("-"*60)
+        print("Distance Improvement (positive = aggregated is closer to GT):")
+        print(f"  Average improvement:                   {avg_improvement:.4f} px")
+        print(f"  Median improvement:                    {median_improvement:.4f} px")
+        print(f"  Keypoints improved (aggregated better): {improved} ({improved/total_keypoints*100:.2f}%)")
+        print(f"  Keypoints worsened (argmax better):    {worsened} ({worsened/total_keypoints*100:.2f}%)")
+        print(f"  Keypoints equal:                       {unchanged} ({unchanged/total_keypoints*100:.2f}%)")
+    else:
+        print("No valid keypoints were evaluated.")
+
     print("="*60)
 
     # Compute mean classification and attribute accuracies and print
