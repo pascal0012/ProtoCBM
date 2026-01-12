@@ -19,6 +19,7 @@ from localization.visualise import (
     save_individual_activation_maps,
     save_aggregated_activation_maps,
     visualize_keypoint_distances_with_heatmaps,
+    visualize_combined_keypoints,
 )
 from localization.localization_accuracy import (
     compute_localization_accuracy,
@@ -28,6 +29,108 @@ from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.train_utils import create_model
 from utils_protocbm.eval_utils import get_localization_loader
 import yaml
+from PIL import Image as PILImage
+
+
+def load_cub_part_keypoints(data_dir, image_path, img_size=299):
+    """
+    Load ground truth part keypoints for a CUB image.
+
+    Args:
+        data_dir: Path to CUB_200_2011 data directory
+        image_path: Path to the input image (can be full path or relative to images/)
+        img_size: Target image size after transformation (default 299)
+
+    Returns:
+        part_keypoints: numpy array of shape (15, 2) with (x, y) coordinates
+                       scaled to img_size. Invisible parts have (0, 0).
+        part_names: list of part names
+        original_size: tuple (width, height) of original image
+    """
+    # Load images.txt to get image_id mapping
+    images_file = os.path.join(data_dir, "images.txt")
+    image_id_map = {}  # Maps image path suffix to image_id
+    with open(images_file, "r") as f:
+        for line in f:
+            parts = line.strip().split()
+            img_id = int(parts[0])
+            img_name = parts[1]
+            image_id_map[img_name] = img_id
+
+    # Load parts.txt to get part names
+    parts_file = os.path.join(data_dir, "parts", "parts.txt")
+    part_names = {}
+    with open(parts_file, "r") as f:
+        for line in f:
+            parts = line.strip().split()
+            part_id = int(parts[0])
+            part_name = " ".join(parts[1:])
+            part_names[part_id] = part_name
+
+    # Load part_locs.txt
+    part_locs_file = os.path.join(data_dir, "parts", "part_locs.txt")
+    part_locs = {}  # Maps (image_id, part_id) to (x, y, visible)
+    with open(part_locs_file, "r") as f:
+        for line in f:
+            parts = line.strip().split()
+            img_id = int(parts[0])
+            part_id = int(parts[1])
+            x = float(parts[2])
+            y = float(parts[3])
+            visible = int(parts[4])
+            part_locs[(img_id, part_id)] = (x, y, visible)
+
+    # Find the image_id for the input image
+    # Extract the relative path (e.g., "001.Black_footed_Albatross/Black_Footed_Albatross_0046_18.jpg")
+    image_id = None
+
+    # Try to match the image path
+    for img_name, img_id in image_id_map.items():
+        if image_path.endswith(img_name) or img_name in image_path:
+            image_id = img_id
+            break
+
+    if image_id is None:
+        print(f"Warning: Could not find image '{image_path}' in CUB dataset. Using zero keypoints.")
+        return np.zeros((15, 2)), list(part_names.values()), None
+
+    # Get original image size to compute scaling factor
+    # Try to load the original image
+    original_size = None
+    try:
+        # Try the provided path first
+        if os.path.exists(image_path):
+            with PILImage.open(image_path) as img:
+                original_size = img.size  # (width, height)
+        else:
+            # Try to construct the path from data_dir
+            for img_name, img_id in image_id_map.items():
+                if img_id == image_id:
+                    full_path = os.path.join(data_dir, "images", img_name)
+                    if os.path.exists(full_path):
+                        with PILImage.open(full_path) as img:
+                            original_size = img.size
+                    break
+    except Exception as e:
+        print(f"Warning: Could not load original image size: {e}")
+
+    # Extract keypoints for this image
+    part_keypoints = np.zeros((15, 2))
+    for part_id in range(1, 16):  # Parts are 1-indexed
+        if (image_id, part_id) in part_locs:
+            x, y, visible = part_locs[(image_id, part_id)]
+            if visible == 1 and original_size is not None:
+                # Scale coordinates to img_size
+                orig_w, orig_h = original_size
+                scale_x = img_size / orig_w
+                scale_y = img_size / orig_h
+                part_keypoints[part_id - 1] = [x * scale_x, y * scale_y]
+            elif visible == 1:
+                # No scaling info available, use raw coordinates
+                part_keypoints[part_id - 1] = [x, y]
+            # else: invisible part, keep as (0, 0)
+
+    return part_keypoints, list(part_names.values()), original_size
 
 
 def prepare_model_fast(model, args, load_weights=False):
@@ -195,11 +298,27 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
     print(f"Prediction: Class {pred.argmax().item()}")
     print(f"Saliency maps shape: {saliency_maps.shape}")
 
-    # Create dummy ground truth data (since we don't have annotations for a random image)
-    # We'll set all coordinates to zeros - this means visualizations won't show GT points
+    # Load ground truth part keypoints from CUB dataset
     B = 1
     K = len(part_dict)
-    part_gts = torch.zeros(B, K, 2).to(device)
+
+    # Try to load real keypoints from CUB dataset
+    cub_data_dir = os.path.join(args.data_dir, "CUB_200_2011")
+    if not os.path.exists(cub_data_dir):
+        cub_data_dir = args.data_dir  # Fallback if structure is different
+
+    gt_keypoints, cub_part_names, original_size = load_cub_part_keypoints(
+        cub_data_dir, image_path, img_size=img_size
+    )
+
+    if original_size is not None:
+        print(f"Original image size: {original_size[0]}x{original_size[1]}")
+        print(f"Loaded {np.sum(gt_keypoints.sum(axis=1) > 0)} visible part keypoints")
+    else:
+        print("Could not load ground truth keypoints for this image")
+
+    # Convert to tensor with batch dimension
+    part_gts = torch.from_numpy(gt_keypoints).float().unsqueeze(0).to(device)  # [1, K, 2]
     part_bbs = torch.zeros(B, K, 4).to(device)
 
     # Empty collectors (we won't compute metrics without GT)
@@ -245,8 +364,10 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
     # Create separate output directories for each method
     out_dir_argmax = os.path.join(output_dir, "argmax_method")
     out_dir_agg = os.path.join(output_dir, "aggregated_method")
+    out_dir_combined = os.path.join(output_dir, "combined_keypoints")
     os.makedirs(out_dir_argmax, exist_ok=True)
     os.makedirs(out_dir_agg, exist_ok=True)
+    os.makedirs(out_dir_combined, exist_ok=True)
 
     # Prepare source paths (just the filename)
     source_paths = [os.path.basename(image_path)]
@@ -289,6 +410,25 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
         img_size=img_size,
     )
 
+    # ========== COMBINED KEYPOINTS VISUALIZATION ==========
+    # Visualize GT, Argmax and Aggregated keypoints together on one image
+    visualize_combined_keypoints(
+        part_gts,
+        img_tensor,
+        source_paths,
+        predicted_coords_argmax,
+        predicted_coords_agg,
+        dists_argmax,
+        dists_agg,
+        0,
+        list(part_dict.values()),
+        batch_idx=batch_idx,
+        t_mean=transform_mean,
+        t_std=transform_std,
+        save_path=out_dir_combined,
+        img_size=img_size,
+    )
+
     # ========== SAVE INDIVIDUAL ACTIVATION MAPS ==========
     print("Saving individual activation maps...")
 
@@ -328,6 +468,7 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
     print(f"Results saved to: {output_dir}")
     print(f"  - Argmax method: {out_dir_argmax}")
     print(f"  - Aggregated method: {out_dir_agg}")
+    print(f"  - Combined keypoints: {out_dir_combined}")
 
 
 def main():
