@@ -11,11 +11,11 @@ import torch
 import torch.nn.functional as F
 
 
-def visualize_keypoint_distances(gts, 
+def visualize_keypoint_distances(gts,
                                 imgs,
-                                img_paths, 
-                                preds, 
-                                dists, 
+                                img_paths,
+                                preds,
+                                dists,
                                 batch_nr,
                                 part_names,
                                 batch_idx=None,
@@ -82,6 +82,113 @@ def visualize_keypoint_distances(gts,
 
     plt.tight_layout()
     plt.savefig(os.path.join(save_path, f"b{batch_nr}_id{batch_idx}_part_viz.png"), dpi=200, bbox_inches='tight')
+    plt.close(fig)
+
+
+def visualize_keypoint_distances_with_heatmaps(gts,
+                                imgs,
+                                img_paths,
+                                preds,
+                                dists,
+                                heatmaps,
+                                batch_nr,
+                                part_names,
+                                batch_idx=None,
+                                t_mean=(0.5, 0.5, 0.5),
+                                t_std=(2, 2, 2),
+                                save_path="",
+                                img_size=299):
+    """
+    Visualize keypoints with interpolated heatmaps overlayed on the image.
+
+    gt:   torch.Tensor (B, K, 2)   -> ground truth xy
+    pred: torch.Tensor (B, K, 2)   -> predicted xy
+    heatmaps: torch.Tensor (B, K, H, W) -> heatmaps per body part (original or interpolated)
+    image: torch.Tensor (B, C, H, W)
+    names: list of K strings
+    """
+
+    B, C, H, W = imgs.shape
+    # Sample random batches / attributes if none are provided
+    if batch_idx is None:
+        batch_idx = random.randint(0, B-1)
+    n_parts = gts.shape[1]
+
+    gt = gts[batch_idx]
+    img = imgs[batch_idx]
+    img_path = img_paths[batch_idx]
+    pred = preds[batch_idx]
+    dist = dists[batch_idx]
+    heatmap = heatmaps[batch_idx]  # [K, H_hm, W_hm]
+
+    # Convert tensors to numpy
+    gt_np = gt.cpu().numpy()
+    pred_np = pred.cpu().numpy()
+    dists_np = dist.cpu().numpy()
+
+    img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
+    img_np = img_np * np.array(t_std) + np.array(t_mean)
+    img_np = np.clip(img_np, 0, 1)
+
+    # Interpolate heatmaps to image size if needed
+    H_hm, W_hm = heatmap.shape[1], heatmap.shape[2]
+    if H_hm != img_size or W_hm != img_size:
+        heatmap_interp = F.interpolate(
+            heatmap.unsqueeze(0),  # [1, K, H_hm, W_hm]
+            size=(img_size, img_size),
+            mode='bilinear',
+            align_corners=False
+        ).squeeze(0)  # [K, img_size, img_size]
+    else:
+        heatmap_interp = heatmap
+
+    heatmap_np = heatmap_interp.cpu().numpy()
+
+    # Make 15 subplots
+    fig, axes = plt.subplots(3, 5, figsize=(20, 12))
+    axes = axes.flatten()
+
+    for i in range(n_parts):
+        ax = axes[i]
+
+        # Show image with heatmap overlay
+        ax.imshow(img_np)
+
+        # Normalize heatmap for this part for better visualization
+        hm = heatmap_np[i]
+        if hm.max() > hm.min():
+            hm_norm = (hm - hm.min()) / (hm.max() - hm.min())
+        else:
+            hm_norm = hm
+        ax.imshow(hm_norm, cmap='jet', alpha=0.5)
+        ax.axis("off")
+
+        gx, gy = gt_np[i]
+        px, py = pred_np[i]
+
+        # Always plot predicted point (red X) - this is the highest activation keypoint
+        ax.scatter(px, py, c="red", s=100, marker="x", linewidths=3, label="Pred (max act.)")
+
+        if gx == 0 and gy == 0:
+            # No GT available
+            ax.set_title(f"{part_names[i]}\nNo GT", fontsize=10)
+            continue
+
+        # Ground truth point (green circle)
+        ax.scatter(gx, gy, c="lime", s=100, marker="o", edgecolors='black', linewidths=1, label="GT")
+
+        # Line between them (white dotted)
+        ax.plot([gx, px], [gy, py], "w--", linewidth=2)
+
+        # Title with name and distance
+        ax.set_title(f"{part_names[i]}\ndist: {dists_np[i]:.1f} px", fontsize=10)
+
+    # Add legend to first subplot
+    axes[0].legend(loc='upper left', fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, f"b{batch_nr}_id{batch_idx}_keypoints_with_heatmaps.png"), dpi=200, bbox_inches='tight')
+    plt.close()
 
 
 
@@ -114,6 +221,7 @@ def plot_threshold_curve(thresholds, accs, save_path="", label_area=True):
     plt.grid(True)
 
     plt.savefig(os.path.join(save_path, "mIoU_threshold_curve.png"), bbox_inches='tight')
+    plt.close()
 
 
 
@@ -439,13 +547,17 @@ def save_individual_activation_maps(
     img_path = source_paths[batch_idx]
 
     # Extract image identifier from path
-    img_path_obj = Path(img_path)
-    img_name = f"{img_path_obj.parent.name}_{img_path_obj.stem}"
+    img_name = "_".join(img_path.split(os.sep)[-2:]).rstrip(".jpg")
 
     # Only have part segmentations for first 70 classes
-    class_id = int(img_name[:3])
-    if class_id > 70:
-        return
+    # Try to extract class ID, skip if it's not a standard CUB dataset format
+    try:
+        class_id = int(img_name[:3])
+        if class_id > 70:
+            return
+    except (ValueError, IndexError):
+        # Not a standard CUB format (e.g., custom image), continue anyway
+        pass
 
     # Denormalize image
     img_np = img.permute(1, 2, 0).cpu().numpy()  # H_img x W_img x C
@@ -544,13 +656,17 @@ def save_aggregated_activation_maps(
     img_path = source_paths[batch_idx]
 
     # Extract image identifier from path
-    img_path_obj = Path(img_path)
-    img_name = f"{img_path_obj.parent.name}_{img_path_obj.stem}"
+    img_name = "_".join(img_path.split(os.sep)[-2:]).rstrip(".jpg")
 
     # Only have part segmentations for first 70 classes
-    class_id = int(img_name[:3])
-    if class_id > 70:
-        return
+    # Try to extract class ID, skip if it's not a standard CUB dataset format
+    try:
+        class_id = int(img_name[:3])
+        if class_id > 70:
+            return
+    except (ValueError, IndexError):
+        # Not a standard CUB format (e.g., custom image), continue anyway
+        pass
 
     # Denormalize image
     img_np = img.permute(1, 2, 0).cpu().numpy()  # H_img x W_img x C
