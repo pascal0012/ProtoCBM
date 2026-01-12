@@ -18,7 +18,7 @@ import numpy as np
 from localization.visualise import (
     save_individual_activation_maps,
     save_aggregated_activation_maps,
-    visualize_keypoint_distances,
+    visualize_keypoint_distances_with_heatmaps,
 )
 from localization.localization_accuracy import (
     compute_localization_accuracy,
@@ -255,34 +255,38 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
 
     print("Saving visualizations...")
 
-    # Visualize ARGMAX method
-    visualize_keypoint_distances(
+    # Visualize ARGMAX method with interpolated heatmaps
+    visualize_keypoint_distances_with_heatmaps(
         part_gts,
         img_tensor,
         source_paths,
         predicted_coords_argmax,
         dists_argmax,
+        heatmaps_argmax,  # Already interpolated from compute_localization_accuracy
         0,
         list(part_dict.values()),
         batch_idx=batch_idx,
         t_mean=transform_mean,
         t_std=transform_std,
         save_path=out_dir_argmax,
+        img_size=img_size,
     )
 
-    # Visualize AGGREGATED method
-    visualize_keypoint_distances(
+    # Visualize AGGREGATED method with interpolated heatmaps
+    visualize_keypoint_distances_with_heatmaps(
         part_gts,
         img_tensor,
         source_paths,
         predicted_coords_agg,
         dists_agg,
+        heatmaps_agg,  # Original size, will be interpolated in the function
         0,
         list(part_dict.values()),
         batch_idx=batch_idx,
         t_mean=transform_mean,
         t_std=transform_std,
         save_path=out_dir_agg,
+        img_size=img_size,
     )
 
     # ========== SAVE INDIVIDUAL ACTIVATION MAPS ==========
