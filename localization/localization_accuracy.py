@@ -248,15 +248,13 @@ def compute_localization_accuracy(
         map, making it more selective but potentially more sensitive to noise.
     """
     # Step 1: For each part, find the attribute with highest activation (argmax)
-    argmax_per_part = []  # Stores the winning attribute index per part [K tensors of shape B]
-    max_scores_per_part = []  # Stores the activation value of the winning attribute
+    argmax_per_part: list[int] = []        # Index per part [K tensors of shape B]
+    max_scores_per_part: list[float] = []    # Activation value of the winning attribute (float)
 
     for part in part_dict.values():
-        # Get activations for attributes belonging to this part
-        subset = pre_attri[:, part_attribute_mapping_tensor[part]]  # [B, num_attrs_in_part]
-
         # Find which attribute in this part has highest activation per image
-        argmax_in_subset = subset.argmax(dim=1)  # [B] - index within subset
+        subset = pre_attri[:, part_attribute_mapping_tensor[part]]  # [B, num_attrs_in_part]
+        argmax_in_subset = subset.argmax(dim=1)                     # [B] - index within subset
 
         # Map back to global attribute index
         result = part_attribute_mapping_tensor[part][argmax_in_subset]  # [B]
@@ -274,11 +272,9 @@ def compute_localization_accuracy(
     valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
 
     # Step 3: Select attention maps for the winning attributes
-    # Stack argmax indices: [K, B] -> transpose to [B, K]
     idx = torch.stack(tuple(argmax_per_part)).to(attention.device)  # [K, B]
-    idx = idx.t()  # [B, K]
+    idx = idx.t()                                                   # [B, K]
 
-    # Advanced indexing to select one attention map per part per image
     batch_indices = torch.arange(attention.shape[0]).unsqueeze(1)
     heatmaps = attention[batch_indices, idx]  # [B, K, H, W]
 
@@ -290,7 +286,6 @@ def compute_localization_accuracy(
     # Step 5: Find predicted part location as the maximum activation point
     B, K, H, W = resized_heatmaps.shape
     flat = resized_heatmaps.view(B, K, -1)  # [B, K, H*W]
-
     max_idx = flat.argmax(dim=2)  # [B, K] - flattened index of max value
 
     # Convert flattened index to 2D coordinates
