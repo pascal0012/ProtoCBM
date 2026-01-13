@@ -79,8 +79,8 @@ def compute_localization_accuracy_without_argmaxing(
 
         # choose min distance among attributes (you may change to mean/max)
         # choose keypoint of attribute wiht min distance from all attributes of that part
-        min_dists = sub_dists.min(dim=1).values
-        dist_per_part[:, part_idx] = min_dists
+        mean_dist = sub_dists.mean(dim=1).values
+        dist_per_part[:, part_idx] = mean_dist
 
         # aggregate scores (e.g., max activation)
         aggregated_scores[:, part_idx] = pre_attri[:, attrs].max(dim=1).values
@@ -191,111 +191,129 @@ def compute_localization_accuracy(
     pre_attri: torch.FloatTensor,
     attention: torch.FloatTensor,
     bounding_box_per_part: torch.IntTensor,
-    part_gts:torch.IntTensor,
+    part_gts: torch.IntTensor,
     part_dict: Dict[str, int],
     part_attribute_mapping_tensor: Dict[str, torch.IntTensor],
     collector_list: List[Dict[str, float]],
     img_size: int = 299,
 ):
     """
-        This method calculates the localization accuracy per part by computing the IoU between the predicted bounding boxes from the attention maps and the ground truth bounding boxes.
-        It is reimplemented based on the description in the SPDA-CNN/APN paper.
+    Compute part localization accuracy using argmax attribute selection per part.
 
-        Args:
-            pre_attri: activations for each attribute in the model
-            attention: heatmaps/saliency maps per attribute, shape [B, A, H, W]
-            part_bounding_boxes: The bounding box per part, for each image, as given by its coordinates [B, K, 4]
-            part_dict: Mapping from part segmentation groups to CUB original parts
-            part_attribute_mapping: Mapping from CUB parts to relative attribute IDs. Amount of IDs should be A.
-            collector_list: List to collect the mIoU results into.
-            img_size: The image size.
+    This method evaluates how well a model localizes body parts by:
+    1. For each part, selecting the attribute with the highest activation (argmax)
+    2. Using that attribute's attention/saliency map to predict the part location
+    3. Computing the Euclidean distance between predicted and ground truth coordinates
 
-        Returns:
-            TODO
+    This approach follows the SPDA-CNN/APN paper methodology where the most activated
+    attribute per part is used as the representative for localization.
+
+    Args:
+        pre_attri: Model's attribute activation scores, shape [B, A] where B is batch
+            size and A is the number of attributes. Used to select which attribute's
+            attention map to use for each part.
+        attention: Attention/saliency heatmaps per attribute, shape [B, A, H, W].
+            These are typically low-resolution feature maps (e.g., 8x8 for Inception).
+        bounding_box_per_part: Ground truth bounding boxes per part, shape [B, K, 4]
+            where K is the number of parts. Format: [x1, y1, x2, y2]. Used for
+            validity masking (currently not used for IoU computation).
+        part_gts: Ground truth part keypoint coordinates, shape [B, K, 2].
+            Format: [x, y]. Parts not visible in the image have coordinates [0, 0].
+        part_dict: Mapping from part IDs to part names. Keys are part IDs (str),
+            values are part names (str). Defines the K parts being evaluated.
+        part_attribute_mapping_tensor: Mapping from part names to attribute indices.
+            Keys are part names, values are tensors of attribute indices that belong
+            to that part. Attribute indices must be 0-indexed and match the model's
+            attribute ordering.
+        collector_list: Accumulator list for per-image results. Each image's results
+            are appended as a dict mapping part names to Euclidean distances.
+            Distance is -1 for parts not present in the image.
+        img_size: Target image size for resizing attention maps. Default 299
+            (standard Inception input size). Attention maps are bilinearly
+            interpolated to this size before computing predicted coordinates.
+
+    Returns:
+        tuple: (predicted_coords, dist, resized_heatmaps, max_scores_per_part)
+            - predicted_coords: Predicted part locations, shape [B, K, 2]
+            - dist: Euclidean distances to ground truth, shape [B, K].
+                    Value is -1 for parts not present in the image.
+            - resized_heatmaps: Selected attention maps resized to img_size,
+                    shape [B, K, img_size, img_size]
+            - max_scores_per_part: Maximum attribute activation per part,
+                    shape [B, K]. Useful for confidence weighting.
+
+    Note:
+        Unlike compute_localization_accuracy_aggregated which sums all attribute
+        maps per part, this method uses only the single highest-activated attribute's
+        map, making it more selective but potentially more sensitive to noise.
     """
-    # part_attribute_mapping means a dict that maps from a part (CUB/parts/parts.txt) to a list of attribute IDs
-    # sum of all attribute IDs must not be more that number of attention maps returned/attributes used by model. also is
-    # required to be 0 indexed and correctly match the attribute order in the model
-    #reimplementation of paper description
+    # Step 1: For each part, find the attribute with highest activation (argmax)
+    argmax_per_part = []  # Stores the winning attribute index per part [K tensors of shape B]
+    max_scores_per_part = []  # Stores the activation value of the winning attribute
 
-    #get argmax attribute per part
-    # Per part k \in K, get the argmax index (attribute idx that had the highest activation for that part) for each img in the batch
-    argmax_per_part = [] # max index per part, -1 if part not present
-    max_scores_per_part = []
     for part in part_dict.values():
-        #take argmax of each part group
-        subset = pre_attri[:, part_attribute_mapping_tensor[part]]
+        # Get activations for attributes belonging to this part
+        subset = pre_attri[:, part_attribute_mapping_tensor[part]]  # [B, num_attrs_in_part]
 
-        argmax_in_subset = subset.argmax(dim=1)
-        result = part_attribute_mapping_tensor[part][argmax_in_subset] #now res should be batchsize shape
+        # Find which attribute in this part has highest activation per image
+        argmax_in_subset = subset.argmax(dim=1)  # [B] - index within subset
 
+        # Map back to global attribute index
+        result = part_attribute_mapping_tensor[part][argmax_in_subset]  # [B]
         argmax_per_part.append(result)
 
-        max_score = pre_attri[torch.arange(pre_attri.shape[0]), result]  # [batch_size]
+        # Store the actual activation value of the winning attribute
+        max_score = pre_attri[torch.arange(pre_attri.shape[0]), result]  # [B]
         max_scores_per_part.append(max_score)
 
-
+    # Stack scores: [K, B] -> transpose to [B, K]
     max_scores_per_part = torch.stack(max_scores_per_part).t()
 
-    # Create a mask to track which part bounding boxes are non-empty
-    valid_mask = (bounding_box_per_part.sum(dim=-1) != 0)  # [B, K]
-
-    #part is [0, 0] if it doesnt exist
+    # Step 2: Create validity mask for parts present in each image
+    # Parts with ground truth coordinates [0, 0] are considered not visible
     valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
 
-    # Take heatmaps: For each part, get the heatmap of the attribute belonging to that part that had the highest activation
-    # TODO: Check this if this is correct! Maybe need torch.gather
-    idx = torch.stack(tuple(argmax_per_part)).to(attention.device) # [K, B]
+    # Step 3: Select attention maps for the winning attributes
+    # Stack argmax indices: [K, B] -> transpose to [B, K]
+    idx = torch.stack(tuple(argmax_per_part)).to(attention.device)  # [K, B]
     idx = idx.t()  # [B, K]
+
+    # Advanced indexing to select one attention map per part per image
     batch_indices = torch.arange(attention.shape[0]).unsqueeze(1)
-    heatmaps = attention[batch_indices, idx] # [B, K, H, W] --> e.g. for inception: [B, 15, 8, 8]
+    heatmaps = attention[batch_indices, idx]  # [B, K, H, W]
 
-    # Resize heatmaps to image size
-    resized_heatmaps = torch.nn.functional.interpolate(heatmaps, size=img_size, mode='bilinear', align_corners=False)
+    # Step 4: Resize heatmaps from feature map resolution to image resolution
+    resized_heatmaps = torch.nn.functional.interpolate(
+        heatmaps, size=img_size, mode='bilinear', align_corners=False
+    )
 
-    #get indices of max vals
-    B, A, H, W = resized_heatmaps.shape
-    flat = resized_heatmaps.view(B, A, -1) # [B, A(15), HxW]
+    # Step 5: Find predicted part location as the maximum activation point
+    B, K, H, W = resized_heatmaps.shape
+    flat = resized_heatmaps.view(B, K, -1)  # [B, K, H*W]
 
-    max_idx = flat.argmax(dim=2)
+    max_idx = flat.argmax(dim=2)  # [B, K] - flattened index of max value
 
+    # Convert flattened index to 2D coordinates
     y = max_idx // W
     x = max_idx % W
+    predicted_coords = torch.stack((x, y), dim=2)  # [B, K, 2]
 
-    predicted_coords = torch.stack((x, y), dim=2)
-    assert predicted_coords.shape == part_gts.shape
-    
+    assert predicted_coords.shape == part_gts.shape, \
+        f"Shape mismatch: predicted {predicted_coords.shape} vs gt {part_gts.shape}"
 
-    #now we have our part_gts [B, A(15), 2] and our predicted coords [B, A(15), 2] and can compute euclidean distance
-    #assert 0 == 1
+    # Step 6: Compute Euclidean distance between predicted and ground truth
     diff = part_gts.float() - predicted_coords.float()
-    dist = torch.norm(diff, dim=2) # [B, A(15)]
+    dist = torch.norm(diff, dim=2)  # [B, K]
 
-    #now we set the distance of not present parts to -1
+    # Mark distance as -1 for parts not present in the image
     dist[~valid_mask] = -1
 
+    # Step 7: Collect per-image results for later aggregation
     for i in range(dist.shape[0]):
         sub_res = dict(zip(list(part_dict.values()), dist[i].tolist()))
         collector_list.append(sub_res)
-    """
-    # Compute sliding window from heatmaps
-    optimal_masks_batch = compute_optimal_masks_per_mask(resized_heatmaps, bounding_box_per_part) # [B, K, 4]
-    optimal_masks_batch[~valid_mask] = 0
 
-
-
-    # Get the IoU between the bounding boxes and our heatmaps, per part over all images, set to -1 for non-existing parts
-    ious = bbox_iou_tensor(optimal_masks_batch, bounding_box_per_part)
-    valid_mask = ((optimal_masks_batch.sum(-1) > 0) & (bounding_box_per_part.sum(-1) > 0))
-    ious[~valid_mask] = -1
-
-    # Take computed IoUs per part and store them to dict for later calculation
-    for i in range(ious.shape[0]):
-        sub_res = dict(zip(list(part_dict.values()), ious[i].tolist()))
-        collector_list.append(sub_res)"""
     return predicted_coords, dist, resized_heatmaps, max_scores_per_part
-    
-    #return optimal_masks_batch, bounding_box_per_part, ious, resized_heatmaps, max_scores_per_part
 
 
 def create_part_attribute_mapping_tensor(part_attribute_mapping: Dict[str, List[int]], device):
