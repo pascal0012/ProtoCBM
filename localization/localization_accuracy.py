@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 
-def compute_localization_accuracy_without_argmaxing(
+def compute_localization_accuracy_centermean(
     pre_attri: torch.FloatTensor,
     attention: torch.FloatTensor,
     bounding_box_per_part: torch.IntTensor,
@@ -37,10 +37,10 @@ def compute_localization_accuracy_without_argmaxing(
     # ---- 1) Compute predicted coordinates for EVERY ATTRIBUTE -------------
     B, A, H, W = resized_heatmaps.shape
     flat = resized_heatmaps.view(B, A, -1)
-
     max_idx = flat.argmax(dim=2)  # [B, A]
 
-    y_attr = max_idx // W
+    # Find position in image coordinate
+    y_attr = max_idx // H
     x_attr = max_idx % W
     predicted_coords_attr = torch.stack((x_attr, y_attr), dim=2)  # [B, A, 2]
 
