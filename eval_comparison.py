@@ -10,11 +10,6 @@ import torch
 from tqdm import tqdm
 import numpy as np
 
-from localization.visualise import (
-    visualize_keypoint_distances,
-    save_individual_activation_maps,
-    save_aggregated_activation_maps
-)
 from localization.localization_accuracy import (
     compute_localization_accuracy,
     compute_localization_accuracy_aggregated,  # NEW METHOD
@@ -23,7 +18,7 @@ from localization.localization_accuracy import (
 
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS
-from utils_protocbm.eval_utils import LocalizationMeter, get_localization_loader
+from utils_protocbm.eval_utils import get_localization_loader
 from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, gather_args, prepare_model, create_model
 
 
@@ -43,20 +38,8 @@ def eval(args):
     model, device = prepare_model(model, args, load_weights=True, compile=False)
     model.eval()
 
-    # IMPORTANT: Override batch size to 1 since we only visualize batch_idx=0
-    # This makes evaluation much faster and avoids wasting computation
-    original_batch_size = args.batch_size
-    args.batch_size = 1
-    print(f"Overriding batch_size from {original_batch_size} to 1 for efficient visualization")
-
     # Get the localization data loader and additional transform statistics
-    loader, transform_mean, transform_std, img_size = get_localization_loader(model, args.data_dir, args.split_dir, args)
-    map_attr_id_to_part_seg_group = loader.dataset.map_attr_id_to_part_seg_group
-    attribute_names = loader.dataset.attribute_names
-    unmatched_attr_mask = loader.dataset.unmatched_attr_mask
-
-    # Collecting metric values across batches for proper mean
-    seg_loc_meter = LocalizationMeter(attribute_names, device)
+    loader, _, _, img_size = get_localization_loader(model, args.data_dir, args.split_dir, args)
 
     # Two separate collectors for the two methods
     loc_acc_collector_argmax = []
@@ -71,14 +54,11 @@ def eval(args):
     coord_changes = []  # Store the distance between argmax and aggregated predictions
     dist_improvements = []  # Store how much the distance to GT improved (positive = aggregated is better)
 
-    # Optional: Limit number of samples for faster visualization testing
+    # Optional: Limit number of samples for testing
     max_samples = getattr(args, 'max_samples', None)
     total_samples = min(len(loader), max_samples) if max_samples else len(loader)
 
-    print(f"Processing {total_samples} samples (batch_size=1, vis_every_n={args.vis_every_n})")
-    if args.vis_every_n > 0:
-        num_visualizations = (total_samples + args.vis_every_n - 1) // args.vis_every_n
-        print(f"Will generate {num_visualizations} sets of visualizations")
+    print(f"Processing {total_samples} samples")
 
     with torch.no_grad():
         for data_idx, data in enumerate(tqdm(loader, desc="Evaluating samples", total=total_samples)):
@@ -142,63 +122,6 @@ def eval(args):
                     # Track improvement: positive means aggregated is closer to GT
                     improvement = dist_argmax - dist_agg
                     dist_improvements.append(improvement)
-
-            # Visualize both methods for comparison (only for selected samples)
-            if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
-                # Create separate output directories for each method
-                out_dir_argmax = os.path.join(args.out_dir_part_seg, "argmax_method")
-                out_dir_agg = os.path.join(args.out_dir_part_seg, "aggregated_method")
-                os.makedirs(out_dir_argmax, exist_ok=True)
-                os.makedirs(out_dir_agg, exist_ok=True)
-
-                # Always visualize the first image in each batch for consistency
-                batch_idx = 0
-
-                # Visualize ARGMAX method
-                visualize_keypoint_distances(
-                    part_gts, inputs, source_paths, predicted_coords_argmax, dists_argmax,
-                    data_idx, list(loader.dataset.part_dict.values()),
-                    batch_idx=batch_idx,
-                    t_mean=transform_mean, t_std=transform_std, save_path=out_dir_argmax
-                )
-
-                # Visualize AGGREGATED method
-                visualize_keypoint_distances(
-                    part_gts, inputs, source_paths, predicted_coords_agg, dists_agg,
-                    data_idx, list(loader.dataset.part_dict.values()),
-                    batch_idx=batch_idx,
-                    t_mean=transform_mean, t_std=transform_std, save_path=out_dir_agg
-                )
-
-                # ========== SAVE INDIVIDUAL ACTIVATION MAPS ==========
-                # Create subdirectories for individual activation maps
-                out_dir_argmax_individual = os.path.join(out_dir_argmax, "individual_maps")
-                out_dir_agg_individual = os.path.join(out_dir_agg, "individual_maps")
-                os.makedirs(out_dir_argmax_individual, exist_ok=True)
-                os.makedirs(out_dir_agg_individual, exist_ok=True)
-
-                # For ARGMAX method: save individual activation maps per attribute
-                # We use the original saliency_maps (all attributes) [B, A, H, W]
-                save_individual_activation_maps(
-                    inputs, saliency_maps, attribute_names,
-                    loader.dataset.map_part_to_attr_loc_acc,
-                    source_paths,
-                    batch_idx=batch_idx,
-                    t_mean=transform_mean, t_std=transform_std,
-                    save_path=out_dir_argmax_individual
-                )
-
-                # For AGGREGATED method: save the aggregated heatmaps per body part
-                # heatmaps_agg has shape [B, K, H, W] where K is number of parts
-                save_aggregated_activation_maps(
-                    inputs, heatmaps_agg,
-                    list(loader.dataset.part_dict.values()),
-                    source_paths,
-                    batch_idx=batch_idx,
-                    t_mean=transform_mean, t_std=transform_std,
-                    save_path=out_dir_agg_individual,
-                    normalize_heatmaps=False  # Use raw values without rescaling
-                )
 
     # ========== COMPUTE STATISTICS FOR BOTH METHODS ==========
     print("\n" + "="*60)
