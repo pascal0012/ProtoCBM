@@ -35,7 +35,7 @@ sub_limit: null
 checkpoint: outputs/ProtoCBM/models/xcy2.pth
 
 vis_every_n: 5   # Visualize every 5th batch for comparison
-max_samples: 50  # Limit samples for faster testing (remove for full evaluation)
+max_samples: 2500  # Limit samples for faster testing (remove for full evaluation)
 seed: 1  # Used when checkpoint is empty: loads best_model_1.pth from log_dir
 
 batch_size: 64
