@@ -9,6 +9,15 @@ from cub.config import N_ATTRIBUTES
 from utils_protocbm.mappings import MAP_APN_GROUPS_TO_CUB_ATTRIBUTE_IDS, CBM_SELECTED_CUB_ATTRIBUTE_IDS, MAP_PART_SEG_GROUPS_TO_CUB_ATTRIBUTE_IDS, PART_SEG_GROUPS
 
 
+#this function was in loc acc file, is for loc distance previously
+def create_part_attribute_mapping_tensor(part_attribute_mapping: Dict[str, List[int]], device):
+    part_attribute_mapping_tensor = {}
+    for part, attr_list in part_attribute_mapping.items():
+        part_attribute_mapping_tensor[part] = torch.tensor(attr_list).to(device)
+    return part_attribute_mapping_tensor
+
+
+
 # Build a mapping from old index -> new index
 def map_attribute_ids_from_cub_to_cbm(attr_ids: Union[List[int], Dict[str, int]]):
     if isinstance(attr_ids, dict):

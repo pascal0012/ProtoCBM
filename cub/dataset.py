@@ -14,9 +14,9 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from localization.part_seg_iou import create_mapping_attributes_to_part_seg_group
-from localization.localization_accuracy import create_part_attribute_mapping_tensor
+#from localization.localization_accuracy import create_part_attribute_mapping_tensor
 from utils_protocbm.mappings import PART_SEG_GROUPS
-from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
+from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm, create_part_attribute_mapping_tensor
 from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS
 from cub.config import BASE_DIR, N_ATTRIBUTES
 

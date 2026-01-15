@@ -1,0 +1,217 @@
+def bbox_iou_tensor(boxes1, boxes2):
+    """
+        Compute IoU for batches of bounding boxes.
+
+        Args:
+            boxes1: (B, K, 4) or (K, 4)
+            boxes2: (B, K, 4) or (K, 4)
+        
+        Returns:
+            ious: (B, K)
+    """
+    # Intersection coords
+    x_left = torch.max(boxes1[..., 0], boxes2[..., 0])
+    y_top = torch.max(boxes1[..., 1], boxes2[..., 1])
+    x_right = torch.min(boxes1[..., 2], boxes2[..., 2])
+    y_bottom = torch.min(boxes1[..., 3], boxes2[..., 3])
+
+    # Intersection width/height
+    inter_w = (x_right - x_left).clamp(min=0)
+    inter_h = (y_bottom - y_top).clamp(min=0)
+    intersection = inter_w * inter_h
+
+    # Area of boxes
+    area1 = (boxes1[..., 2] - boxes1[..., 0]) * (boxes1[..., 3] - boxes1[..., 1])
+    area2 = (boxes2[..., 2] - boxes2[..., 0]) * (boxes2[..., 3] - boxes2[..., 1])
+
+    union = area1 + area2 - intersection
+    iou = intersection / union.clamp(min=1e-6)
+    return iou
+
+
+
+def get_optimal_mask(heatmap:np.ndarray, part_bb:list):
+    #takes the heatmap and
+    
+    if heatmap.size == 0 or len(part_bb) == 0: #normally both should be empty but just in case make or
+        return []
+    
+    #mask height and width
+    mask_w = int(part_bb[2] - part_bb[0])
+    mask_h = int(part_bb[3] - part_bb[1])
+
+    #conv for response map, take maximum value
+    kernel = torch.ones((1, 1, mask_h, mask_w))
+    response = F.conv2d(torch.from_numpy(heatmap).unsqueeze(0).unsqueeze(0), kernel).squeeze(0).squeeze(0)
+    
+    #argmax from flatten, then convert back to 2d pos
+    flat_response = torch.flatten(response)
+    max_pos = flat_response.argmax()
+    best_y = (max_pos // heatmap.shape[-1]).item()
+    best_x = (max_pos %  heatmap.shape[-1]).item()
+
+    #x1, y1, x2, y2
+    return [max(0, best_x - int(mask_w/2)), max(0, best_y - int(mask_h/2)), min(heatmap.shape[0], best_x + int(mask_w/2)), min(heatmap.shape[1], best_y + int(mask_h/2))]
+
+
+
+def compute_optimal_masks(heatmaps, mask_sizes):
+    """
+    heatmaps:  (B, K, H, W) tensor
+    mask_sizes: (B, K, 2)   tensor containing [mask_w, mask_h]
+    returns:  (B, K, 4)     [x1, y1, x2, y2] for each heatmap
+    """
+
+    B, K, H, W = heatmaps.shape
+    N = B * K  # total number of maps
+
+    # Flatten to (N, 1, H, W)
+    maps = heatmaps.reshape(N, 1, H, W)
+
+    # Extract mask sizes flattened to length N
+    mask_w = mask_sizes[..., 0].reshape(N).long()
+    mask_h = mask_sizes[..., 1].reshape(N).long()
+
+    # Prepare grouped convolution kernels
+    max_h, max_w = mask_h.max(), mask_w.max()
+
+    # Create full kernels (each with its own mask size)
+    kernels = torch.zeros((N, 1, max_h, max_w), device=maps.device)
+    for i in range(N):
+        kernels[i, 0, :mask_h[i], :mask_w[i]] = 1.0
+
+    # Convolve using grouped convolution
+    response = F.conv2d(maps, kernels, groups=N)
+
+    # Find argmax per heatmap
+    flat = response.reshape(N, -1)
+    max_idx = flat.argmax(dim=1)
+
+    # Convert to x, y
+    Ry = response.shape[2]
+    Rx = response.shape[3]
+
+    best_y = (max_idx // Rx)
+    best_x = (max_idx % Rx)
+
+    # Compute final bounding boxes
+    x1 = (best_x - mask_w // 2).clamp(min=0)
+    y1 = (best_y - mask_h // 2).clamp(min=0)
+    x2 = (best_x + mask_w // 2).clamp(max=W)
+    y2 = (best_y + mask_h // 2).clamp(max=H)
+
+    # Reshape back to (B, K, 4)
+    boxes = torch.stack([x1, y1, x2, y2], dim=1).reshape(B, K, 4)
+
+    return boxes
+
+
+
+def calculate_average_partwise_localization_accuracy(all_ious:list[dict], subgroup_mapping:dict, IoU_thr: float=0.5, blacklist=[]):
+    #compute acc with ious and threshold for all images per part
+    #all ious = list with each item having a matching from part to iou
+
+    #preprocessing, merge groups that belong together and take the max iou value
+    processed_ious = []
+    for iou in all_ious:
+        new_part = {}
+        for part in subgroup_mapping.keys():
+            grouped_parts = subgroup_mapping[part]
+            max_iou = -1
+            for g_part in grouped_parts:
+                if g_part in iou.keys():
+                    if iou[g_part] > max_iou:
+                        max_iou = iou[g_part]
+            new_part[part] = max_iou
+        processed_ious.append(new_part)
+
+    #collect part ious over all images
+    collect = {}
+    for part in processed_ious[0].keys():
+        collect[part] = []
+
+    for iou in processed_ious:
+        for part, value in iou.items():
+            if value == -1: #this part was not present in the image, no iou
+                continue
+            collect[part].append(1 if value >= IoU_thr else 0) #binary results for acc
+
+    #divide sum by amount
+
+    res = {}
+    for part, collected_ious in collect.items():
+        res[part] = sum(collected_ious)/len(collected_ious) if len(collected_ious) != 0 else -1
+
+
+    mean_iou = [x for name, x in res.items() if x != -1 and name not in blacklist]
+    mean_iou_acc = sum(mean_iou)/len(mean_iou)
+
+    print("\n--------- LOCALIZATION ACCURACY ---------\n")
+
+    for group_name, acc in res.items():
+        print(f"Group {group_name} - LocAcc: {acc:.4f}")
+    print(f"\nMean LocAcc: {mean_iou_acc:.4f}")
+
+    return res, mean_iou_acc
+
+
+def compute_optimal_masks_per_mask(heatmaps, part_bbs):
+    """
+    Computes optimal bounding box per heatmap using convolution with mask size.
+
+    Args:
+        heatmaps: torch.Tensor of shape (B, K, H, W)
+        part_bbs: torch.Tensor of shape (B, K, 4)  containing [x1,y1,x2,y2] per part
+
+    Returns:
+        boxes: torch.Tensor of shape (B, K, 4) with [x1,y1,x2,y2] per part
+    """
+
+    B, K, H, W = heatmaps.shape
+    device = heatmaps.device
+    boxes = torch.zeros((B, K, 4), device=device, dtype=torch.int64)
+
+    for b in range(B):
+        for k in range(K):
+            bb = part_bbs[b, k]
+            x1, y1, x2, y2 = bb.tolist()
+
+            # Skip empty bounding boxes
+            if (x2 <= x1) or (y2 <= y1):
+                boxes[b, k] = 0
+                continue
+
+            mask_w = x2 - x1
+            mask_h = y2 - y1
+
+            # Get single heatmap
+            heatmap = heatmaps[b, k:k+1].unsqueeze(0)  # shape (1,1,H,W)
+
+            # Build convolution kernel
+            kernel = torch.ones((1, 1, mask_h, mask_w), device=device, dtype=torch.float)
+
+            # Compute response map
+            response = F.conv2d(heatmap.float(), kernel).squeeze(0).squeeze(0)  # shape: (H-mask_h+1, W-mask_w+1)
+
+            # Find argmax
+            flat_idx = response.argmax()
+            best_y = (flat_idx // response.shape[1]).item()
+            best_x = (flat_idx % response.shape[1]).item()
+
+            #best_y = H - best_y
+            #best_x = W - best_x
+
+
+            # Compute final bounding box
+            x1_opt = max(0, best_x)
+            y1_opt = max(0, best_y)
+            x2_opt = min(W, best_x + mask_w)
+            y2_opt = min(H, best_y + mask_h)
+
+            boxes[b, k] = torch.tensor([x1_opt, y1_opt, x2_opt, y2_opt], device=device)
+
+    return boxes
+
+
+
+
