@@ -519,6 +519,7 @@ class SUBDataset(Dataset):
                 batched=True,
                 batch_size=2000
             )
+            
             # Store mapping from original attr index to filtered index and update attr_names
             sorted_valid = sorted(self.valid_attr_indices)
             self.orig_to_filtered_attr = {orig: i for i, orig in enumerate(sorted_valid)}

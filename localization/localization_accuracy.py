@@ -79,7 +79,7 @@ def compute_localization_accuracy_centermean(
 
         # choose min distance among attributes (you may change to mean/max)
         # choose keypoint of attribute wiht min distance from all attributes of that part
-        mean_dist = sub_dists.mean(dim=1).values
+        mean_dist = sub_dists.mean(dim=1)
         dist_per_part[:, part_idx] = mean_dist
 
         # aggregate scores (e.g., max activation)

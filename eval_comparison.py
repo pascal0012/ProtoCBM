@@ -12,7 +12,8 @@ import numpy as np
 
 from localization.localization_accuracy import (
     compute_localization_accuracy,
-    compute_localization_accuracy_aggregated,  # NEW METHOD
+    compute_localization_accuracy_aggregated,
+    compute_localization_accuracy_centermean,
     calculate_average_partwise_localization_distance,
 )
 
@@ -41,9 +42,10 @@ def eval(args):
     # Get the localization data loader and additional transform statistics
     loader, _, _, img_size = get_localization_loader(model, args.data_dir, args.split_dir, args)
 
-    # Two separate collectors for the two methods
+    # Three separate collectors for the three methods
     loc_acc_collector_argmax = []
     loc_acc_collector_aggregated = []
+    loc_acc_collector_centermean = []
 
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
@@ -95,6 +97,12 @@ def eval(args):
                 loader.dataset.map_part_to_attr_loc_acc, loc_acc_collector_aggregated, img_size=img_size
             )
 
+            # ========== METHOD 3: CENTERMEAN ==========
+            predicted_coords_centermean, dists_centermean, heatmaps_centermean, _ = compute_localization_accuracy_centermean(
+                scores, saliency_maps, part_bbs, part_gts, loader.dataset.part_dict,
+                loader.dataset.map_part_to_attr_loc_acc, loc_acc_collector_centermean, img_size=img_size
+            )
+
             # ========== TRACK KEYPOINT CHANGES BETWEEN METHODS ==========
             # Compare predicted coordinates between argmax and aggregated methods
             # predicted_coords shape: [B, K, 2] where K is number of parts
@@ -142,13 +150,23 @@ def eval(args):
         loc_acc_collector_aggregated, MAP_RESULT_GROUPS_TO_CUB_GROUPS, verbose=True
     )
 
+    print("\n" + "-"*60)
+    print("METHOD 3: CENTERMEAN (Mean of center coordinates per part)")
+    print("-"*60)
+    res_centermean, mean_dist_centermean = calculate_average_partwise_localization_distance(
+        loc_acc_collector_centermean, MAP_RESULT_GROUPS_TO_CUB_GROUPS, verbose=True
+    )
+
     # Print comparison summary
     print("\n" + "="*60)
     print("SUMMARY COMPARISON")
     print("="*60)
     print(f"Mean Localization Distance (Argmax):     {mean_dist_argmax:.4f}")
     print(f"Mean Localization Distance (Aggregated): {mean_dist_agg:.4f}")
-    print(f"Improvement: {((mean_dist_argmax - mean_dist_agg) / mean_dist_argmax * 100):.2f}%")
+    print(f"Mean Localization Distance (Centermean): {mean_dist_centermean:.4f}")
+    print("-"*60)
+    best_method = min([("Argmax", mean_dist_argmax), ("Aggregated", mean_dist_agg), ("Centermean", mean_dist_centermean)], key=lambda x: x[1])
+    print(f"Best method: {best_method[0]} with distance {best_method[1]:.4f}")
     print("="*60)
 
     # ========== KEYPOINT CHANGE STATISTICS ==========
