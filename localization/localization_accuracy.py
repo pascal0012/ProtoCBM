@@ -16,15 +16,33 @@ def compute_localization_accuracy_centermean(
     img_size: int = 299,
 ):
     """
-    Computes localization distance per part without using argmax over attributes.
-    Instead, computes predicted coordinates for every attribute, then aggregates
-    distances for attributes belonging to each part.
+    Compute part localization accuracy by averaging distances across all attributes per part.
+
+    This method evaluates localization by:
+    1. Computing predicted coordinates for every attribute using its attention map
+    2. Computing the distance from each attribute's prediction to its part's ground truth
+    3. Aggregating distances by taking the mean across all attributes belonging to each part
+
+    Args:
+        pre_attri: attribute activation scores, shape: [B, A]
+        attention: Attention/saliency heatmaps per attribute, shape [B, A, H_ATT, W_ATT].
+        bounding_box_per_part: Ground truth bounding boxes per part, shape [B, K, 4]
+        part_gts: Ground truth part keypoint coordinates, shape [B, K, 2].
+        part_dict: Mapping from part IDs (str) to part names (str).
+        part_attribute_mapping_tensor: Mapping from part names to attribute indices.
+        collector_list: Accumulator list for per-image results. Each image's results
+            are appended as a dict mapping part names to mean Euclidean distances.
+        img_size: Target size for resizing attention maps. Default 299.
 
     Returns:
-        predicted_coords_attr: [B, A, 2]
-        dist_per_part:        [B, K]
-        resized_heatmaps:     [B, A, H', W']
-        aggregated_scores:    [B, K] (max activation per part group)
+        tuple: (predicted_coords_attr, dist_per_part, resized_heatmaps, aggregated_scores)
+            - predicted_coords_attr: Predicted location per attribute, shape [B, A, 2]
+            - dist_per_part: Mean distance to GT per part, shape [B, K]. (-1 if not present)
+            - resized_heatmaps: im size heatmap, shape [B, A, img_size, img_size]
+            - aggregated_scores: Maximum attribute activation per part, shape [B, K]
+
+    Note:
+        Attributes not belonging to any part will have distance set to -1.
     """
 
     B, A, H_att, W_att = attention.shape
@@ -109,22 +127,35 @@ def compute_localization_accuracy_aggregated(
     interpolate=True
 ):
     """
-        This method calculates the localization accuracy per part by AGGREGATING (summing) attention maps
-        of all attributes belonging to each body part, then finding the maximum activation location.
+    Compute part localization accuracy by summing attention maps of all attributes per part.
 
-        This is different from compute_localization_accuracy which uses argmax to select a single attribute per part.
+    This method evaluates localization by:
+    1. Summing all attention maps belonging to each body part
+    2. Finding the maximum activation location in the aggregated heatmap
+    3. Computing Euclidean distance between predicted and ground truth coordinates
 
-        Args:
-            pre_attri: activations for each attribute in the model
-            attention: heatmaps/saliency maps per attribute, shape [B, A, H, W]
-            part_bounding_boxes: The bounding box per part, for each image, as given by its coordinates [B, K, 4]
-            part_dict: Mapping from part segmentation groups to CUB original parts
-            part_attribute_mapping: Mapping from CUB parts to relative attribute IDs. Amount of IDs should be A.
-            collector_list: List to collect the mIoU results into.
-            img_size: The image size.
+    Args:
+        pre_attri: Attribute activation scores, shape: [B, A]
+        attention: Attention/saliency heatmaps per attribute, shape [B, A, H_ATT, W_ATT].
+        bounding_box_per_part: Ground truth bounding boxes per part, shape [B, K, 4].
+        part_gts: Ground truth part keypoint coordinates, shape [B, K, 2].
+        part_dict: Mapping from part IDs (str) to part names (str).
+        part_attribute_mapping_tensor: Mapping from part names to attribute indices.
+        collector_list: Accumulator list for per-image results. Each image's results
+            are appended as a dict mapping part names to Euclidean distances.
+        img_size: Target size for resizing attention maps. Default 299.
+        interpolate: If True, return resized heatmaps. If False, return original resolution.
 
-        Returns:
-            predicted_coords, dist, resized_heatmaps, aggregated_scores
+    Returns:
+        tuple: (predicted_coords, dist, resized_heatmaps, aggregated_scores)
+            - predicted_coords: Predicted part locations, shape [B, K, 2]
+            - dist: Euclidean distances to ground truth, shape [B, K]. (-1 if not present)
+            - resized_heatmaps: Aggregated heatmaps per part, shape [B, K, H', W']
+            - aggregated_scores: Summed attribute activations per part, shape [B, K]
+
+    Note:
+        Unlike compute_localization_accuracy which uses argmax attribute selection,
+        this method combines all attribute maps per part.
     """
 
     B, A, H_att, W_att = attention.shape
@@ -205,47 +236,27 @@ def compute_localization_accuracy(
     2. Using that attribute's attention/saliency map to predict the part location
     3. Computing the Euclidean distance between predicted and ground truth coordinates
 
-    This approach follows the SPDA-CNN/APN paper methodology where the most activated
-    attribute per part is used as the representative for localization.
-
     Args:
-        pre_attri: Model's attribute activation scores, shape [B, A] where B is batch
-            size and A is the number of attributes. Used to select which attribute's
-            attention map to use for each part.
-        attention: Attention/saliency heatmaps per attribute, shape [B, A, H, W].
-            These are typically low-resolution feature maps (e.g., 8x8 for Inception).
-        bounding_box_per_part: Ground truth bounding boxes per part, shape [B, K, 4]
-            where K is the number of parts. Format: [x1, y1, x2, y2]. Used for
-            validity masking (currently not used for IoU computation).
+        pre_attri: Attribute activation scores, shape: [B, A]
+        attention: Attention/saliency heatmaps per attribute, shape [B, A, H_ATT, W_ATT].
+        bounding_box_per_part: Ground truth bounding boxes per part, shape [B, K, 4].
         part_gts: Ground truth part keypoint coordinates, shape [B, K, 2].
-            Format: [x, y]. Parts not visible in the image have coordinates [0, 0].
-        part_dict: Mapping from part IDs to part names. Keys are part IDs (str),
-            values are part names (str). Defines the K parts being evaluated.
+        part_dict: Mapping from part IDs (str) to part names (str).
         part_attribute_mapping_tensor: Mapping from part names to attribute indices.
-            Keys are part names, values are tensors of attribute indices that belong
-            to that part. Attribute indices must be 0-indexed and match the model's
-            attribute ordering.
         collector_list: Accumulator list for per-image results. Each image's results
             are appended as a dict mapping part names to Euclidean distances.
-            Distance is -1 for parts not present in the image.
-        img_size: Target image size for resizing attention maps. Default 299
-            (standard Inception input size). Attention maps are bilinearly
-            interpolated to this size before computing predicted coordinates.
+        img_size: Target size for resizing attention maps. Default 299.
 
     Returns:
         tuple: (predicted_coords, dist, resized_heatmaps, max_scores_per_part)
             - predicted_coords: Predicted part locations, shape [B, K, 2]
-            - dist: Euclidean distances to ground truth, shape [B, K].
-                    Value is -1 for parts not present in the image.
-            - resized_heatmaps: Selected attention maps resized to img_size,
-                    shape [B, K, img_size, img_size]
-            - max_scores_per_part: Maximum attribute activation per part,
-                    shape [B, K]. Useful for confidence weighting.
+            - dist: Euclidean distances to ground truth, shape [B, K]. (-1 if not present)
+            - resized_heatmaps: im size heatmap, shape [B, K, img_size, img_size]
+            - max_scores_per_part: Maximum attribute activation per part, shape [B, K]
 
     Note:
         Unlike compute_localization_accuracy_aggregated which sums all attribute
-        maps per part, this method uses only the single highest-activated attribute's
-        map, making it more selective but potentially more sensitive to noise.
+        maps per part, this method uses only the single highest-activated attribute's map.
     """
     # Step 1: For each part, find the attribute with highest activation (argmax)
     argmax_per_part: list[int] = []        # Index per part [K tensors of shape B]
@@ -312,6 +323,16 @@ def compute_localization_accuracy(
 
 
 def create_part_attribute_mapping_tensor(part_attribute_mapping: Dict[str, List[int]], device):
+    """
+    Convert part-to-attribute mapping from lists to GPU tensors.
+
+    Args:
+        part_attribute_mapping: Dictionary mapping part names to attribute indices.
+        device: PyTorch device where tensors will be placed.
+
+    Returns:
+        Dict[str, torch.IntTensor]: Dictionary with values converted to tensors.
+    """
     part_attribute_mapping_tensor = {}
     for part, attr_list in part_attribute_mapping.items():
         part_attribute_mapping_tensor[part] = torch.tensor(attr_list).to(device)
@@ -320,14 +341,20 @@ def create_part_attribute_mapping_tensor(part_attribute_mapping: Dict[str, List[
 
 def compute_optimal_masks_per_mask(heatmaps, part_bbs):
     """
-    Computes optimal bounding box per heatmap using convolution with mask size.
+    Compute optimal bounding box placement per heatmap using sliding window convolution.
+
+    For each part, finds the position where a bounding box of the ground truth size
+    would capture the maximum total activation in the heatmap.
 
     Args:
-        heatmaps: torch.Tensor of shape (B, K, H, W)
-        part_bbs: torch.Tensor of shape (B, K, 4)  containing [x1,y1,x2,y2] per part
+        heatmaps: Attention/saliency maps, shape [B, K, H, W].
+        part_bbs: Ground truth bounding boxes defining mask sizes, shape [B, K, 4].
 
     Returns:
-        boxes: torch.Tensor of shape (B, K, 4) with [x1,y1,x2,y2] per part
+        torch.Tensor: Optimal bounding boxes, shape [B, K, 4]. Returns zeros for invalid boxes.
+
+    Note:
+        Per-sample loop implementation. For batched processing, use compute_optimal_masks.
     """
 
     B, K, H, W = heatmaps.shape
@@ -377,6 +404,20 @@ def compute_optimal_masks_per_mask(heatmaps, part_bbs):
 
 
 def calculate_average_partwise_localization_accuracy(all_ious:list[dict], subgroup_mapping:dict, IoU_thr: float=0.5, blacklist=[]):
+    """
+    Calculate per-part localization accuracy from IoU scores with thresholding.
+
+    Args:
+        all_ious: List of dicts mapping part names to IoU values. (-1 if not present)
+        subgroup_mapping: Dict mapping merged part names to lists of original part names.
+        IoU_thr: IoU threshold for correct localization. Default 0.5.
+        blacklist: Part names to exclude from mean accuracy computation.
+
+    Returns:
+        tuple: (res, mean_iou_acc)
+            - res: Dict mapping part names to accuracy values. (-1 if never present)
+            - mean_iou_acc: Mean accuracy across all non-blacklisted parts.
+    """
     #compute acc with ious and threshold for all images per part
     #all ious = list with each item having a matching from part to iou
 
@@ -425,6 +466,22 @@ def calculate_average_partwise_localization_accuracy(all_ious:list[dict], subgro
 
 
 def calculate_average_partwise_localization_distance(all_distances:list[dict], subgroup_mapping:dict, verbose=True):
+    """
+    Calculate average Euclidean distance per part across all images.
+
+    Args:
+        all_distances: List of dicts mapping part names to distances. (-1 if not present)
+        subgroup_mapping: Dict mapping merged part names to lists of original part names.
+        verbose: If True, print formatted results to stdout. Default True.
+
+    Returns:
+        tuple: (res, mean_dist)
+            - res: Dict mapping part names to mean distance values. (-1 if never present)
+            - mean_dist: Mean distance across all parts.
+
+    Note:
+        Lower distance values indicate better localization performance.
+    """
     #compute acc with ious and threshold for all images per part
     #all ious = list with each item having a matching from part to iou
 
@@ -478,9 +535,10 @@ def calculate_average_partwise_localization_distance(all_distances:list[dict], s
     
 def compute_optimal_masks(heatmaps, mask_sizes):
     """
-    heatmaps:  (B, K, H, W) tensor
-    mask_sizes: (B, K, 2)   tensor containing [mask_w, mask_h]
-    returns:  (B, K, 4)     [x1, y1, x2, y2] for each heatmap
+    Compute optimal bounding box placement using batched grouped convolution.
+
+    Efficiently finds the position where a mask of given size captures maximum
+    activation for all heatmaps simultaneously.
     """
 
     B, K, H, W = heatmaps.shape
