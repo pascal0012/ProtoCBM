@@ -12,6 +12,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
+# Add ConceptBottleneck to path for loading legacy checkpoints that use CUB.template_model
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "ConceptBottleneck"))
+
 from losses import ProtoModLoss
 from models.concept_mapper import ProtoMod
 from models.models import ModelCtoY, ModelXtoC, ModelXtoCtoY, ModelXtoY
@@ -29,13 +32,15 @@ def prepare_model(
     if load_weights:
         if "weight_dir" in vars(args):
             state_dict = torch.load(args.weight_dir, weights_only=False)
+        elif hasattr(args, "checkpoint") and args.checkpoint:
+            state_dict = torch.load(args.checkpoint, weights_only=False)
         else:
             path_to_weights = (
                 args.apn_weights_dir
                 if args.model_name == "apn"
                 else os.path.join(args.log_dir, f"best_model_{args.seed}.pth")
             )
-            state_dict = torch.load(path_to_weights)
+            state_dict = torch.load(path_to_weights, weights_only=False)
 
         # Compatibilty with prior runs that saved the model fully and not only the state dict
         if hasattr(state_dict, "state_dict"):
@@ -53,7 +58,33 @@ def prepare_model(
             ]
             for k in keys_to_remove:
                 del state_dict[k]
-        model.load_state_dict(state_dict)
+
+        # Remap keys from legacy End2EndModel format to ModelConnector format if needed
+        # Legacy End2EndModel structure:
+        #   first_model (Inception3): contains backbone layers + all_fc (attribute predictors)
+        #   sec_model (MLP): classifier
+        # Current ModelConnector structure:
+        #   backbone: CNN backbone only
+        #   concept_mapper: contains all_fc (attribute predictors)
+        #   classifier: final classifier
+        if any(k.startswith("first_model.") for k in state_dict.keys()):
+            print("Remapping legacy End2EndModel keys to ModelConnector format...")
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                new_key = k
+                # Map first_model.all_fc -> concept_mapper.all_fc (attribute predictors)
+                if k.startswith("first_model.all_fc."):
+                    new_key = k.replace("first_model.all_fc.", "concept_mapper.all_fc.")
+                # Map first_model.* (other layers) -> backbone.* (CNN backbone)
+                elif k.startswith("first_model."):
+                    new_key = k.replace("first_model.", "backbone.")
+                # Map sec_model -> classifier (for MLP classifier)
+                elif k.startswith("sec_model."):
+                    new_key = k.replace("sec_model.", "classifier.")
+                new_state_dict[new_key] = v
+            state_dict = new_state_dict
+
+        model.load_state_dict(state_dict, strict=False)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
@@ -126,13 +157,14 @@ def model_by_mode(args: Namespace) -> nn.Module:
         raise ValueError(f"Unknown mode {args.mode}")
 
     if args.checkpoint != "":
-        model.load_state_dict(
-            torch.load(
-                args.checkpoint,
-                map_location="cuda" if torch.cuda.is_available() else "cpu",
-            ),
-            strict=False,
+        loaded = torch.load(
+            args.checkpoint,
+            map_location="cuda" if torch.cuda.is_available() else "cpu",
         )
+        # Handle case where full model was saved instead of just state_dict
+        if hasattr(loaded, "state_dict"):
+            loaded = loaded.state_dict()
+        model.load_state_dict(loaded, strict=False)
         print("Continuing with checkpoint:", args.checkpoint)
 
     return model
@@ -382,6 +414,12 @@ def gather_args():
         default="configs/debug.yaml",
         help="Path to config file (YAML)",
     )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Path to model checkpoint (overrides config file)",
+    )
     cli_args = parser.parse_args()
 
     # Load the config yaml
@@ -397,5 +435,9 @@ def gather_args():
 
     # Add run name, keep as namespace to be able to access like args.param
     args = Namespace(**args, config_path=cli_args.config)
+
+    # Override checkpoint from CLI if provided
+    if cli_args.checkpoint is not None:
+        args.checkpoint = cli_args.checkpoint
 
     return args
