@@ -9,6 +9,9 @@ import random
 
 import torch
 import torch.nn.functional as F
+from typing import List, Dict, Optional, Tuple, Union
+
+from localization.vis_utils import DEFAULT_STYLES, GT_STYLE, PredictionStyle, build_title, denormalize_image, extract_image_name, plot_line_to_gt, plot_prediction, tensor_to_numpy
 
 
 def visualize_keypoint_distances(gts,
@@ -112,12 +115,12 @@ def visualize_keypoint_distances_with_heatmaps(gts,
     # Sample random batches / attributes if none are provided
     if batch_idx is None:
         batch_idx = random.randint(0, B-1)
-    n_parts = gts.shape[1]
 
+    n_parts = gts.shape[1]
     gt = gts[batch_idx]
     img = imgs[batch_idx]
     img_path = img_paths[batch_idx]
-    pred = preds[batch_idx]
+    pred = preds[batch_idx] 
     dist = dists[batch_idx]
     heatmap = heatmaps[batch_idx]  # [K, H_hm, W_hm]
 
@@ -192,76 +195,62 @@ def visualize_keypoint_distances_with_heatmaps(gts,
 
 
 def visualize_combined_keypoints(
-    gts,
-    imgs,
-    img_paths,
-    preds_argmax,
-    preds_agg,
-    dists_argmax,
-    dists_agg,
-    batch_nr,
-    part_names,
-    batch_idx=None,
-    t_mean=(0.5, 0.5, 0.5),
-    t_std=(2, 2, 2),
-    save_path="",
-    img_size=299,
+    gts: torch.Tensor,
+    imgs: torch.Tensor,
+    img_paths: list[str],
+    predictions: dict[str, torch.Tensor],
+    distances: dict[str, torch.Tensor],
+    part_names: list[str],
+    batch_idx: Optional[int] = None,
+    t_mean: Tuple = (0.5, 0.5, 0.5),
+    t_std: Tuple = (2, 2, 2),
+    save_path: str = "",
+    styles: Optional[dict[str, PredictionStyle]] = None,
 ):
     """
-    Visualize all three keypoint types on the same image:
-    - Ground truth (GT) keypoints from CUB dataset
-    - Argmax predicted keypoints (highest activation from single best attribute)
-    - Aggregated predicted keypoints (highest activation from summed attributes)
+    Visualize multiple keypoint prediction types on the same image.
 
     Args:
         gts: torch.Tensor (B, K, 2) -> ground truth xy coordinates
         imgs: torch.Tensor (B, C, H, W) -> input images
         img_paths: list of image paths
-        preds_argmax: torch.Tensor (B, K, 2) -> argmax predicted xy coordinates
-        preds_agg: torch.Tensor (B, K, 2) -> aggregated predicted xy coordinates
-        dists_argmax: torch.Tensor (B, K) -> distances for argmax method
-        dists_agg: torch.Tensor (B, K) -> distances for aggregated method
+        predictions: dict mapping method names to tensors (B, K, 2) of predicted xy coordinates
+                    e.g., {"argmax": preds_argmax, "agg": preds_agg, "weighted": preds_weighted}
+        distances: dict mapping method names to tensors (B, K) of distances
+                   e.g., {"argmax": dists_argmax, "agg": dists_agg, "weighted": dists_weighted}
         batch_nr: batch number for filename
         part_names: list of K part name strings
-        batch_idx: which sample in batch to visualize
+        batch_idx: which sample in batch to visualize (random if None)
         t_mean: normalization mean
         t_std: normalization std
         save_path: output directory
         img_size: target image size
+        styles: optional dict mapping method names to PredictionStyle objects
     """
     B, C, H, W = imgs.shape
     if batch_idx is None:
         batch_idx = random.randint(0, B - 1)
+        
     n_parts = gts.shape[1]
 
-    gt = gts[batch_idx]
-    img = imgs[batch_idx]
-    img_path = img_paths[batch_idx]
-    pred_argmax = preds_argmax[batch_idx]
-    pred_agg = preds_agg[batch_idx]
-    dist_argmax = dists_argmax[batch_idx]
-    dist_agg = dists_agg[batch_idx]
+    # Use default styles if not provided
+    if styles is None:
+        styles = DEFAULT_STYLES
 
-    # Extract image name for filename
-    img_name = "_".join(img_path.split(os.sep)[-2:]) if os.sep in img_path else img_path
-    img_name = img_name.replace(".jpg", "").replace(".png", "").replace(".jpeg", "")
-    # Sanitize filename
-    img_name = img_name.replace("/", "_").replace("\\", "_")
+    # Extract single sample data
+    gt_np = tensor_to_numpy(gts[batch_idx])
+    img_np = denormalize_image(imgs[batch_idx], t_mean, t_std)
+    img_name = extract_image_name(img_paths[batch_idx])
 
-    # Convert tensors to numpy
-    gt_np = gt.cpu().numpy()
-    pred_argmax_np = pred_argmax.cpu().numpy()
-    pred_agg_np = pred_agg.cpu().numpy()
-    dist_argmax_np = dist_argmax.cpu().numpy()
-    dist_agg_np = dist_agg.cpu().numpy()
+    # Convert predictions and distances to numpy
+    preds_np = {name: tensor_to_numpy(pred[batch_idx]) for name, pred in predictions.items()}
+    dists_np = {name: tensor_to_numpy(dist[batch_idx]) for name, dist in distances.items()}
 
-    img_np = img.permute(1, 2, 0).cpu().numpy()  # H x W x C
-    img_np = img_np * np.array(t_std) + np.array(t_mean)
-    img_np = np.clip(img_np, 0, 1)
-
-    # Make 15 subplots (3x5 grid)
+    # Create subplots
     fig, axes = plt.subplots(3, 5, figsize=(20, 12))
     axes = axes.flatten()
+
+    method_names = list(predictions.keys())
 
     for i in range(n_parts):
         ax = axes[i]
@@ -269,55 +258,43 @@ def visualize_combined_keypoints(
         ax.axis("off")
 
         gx, gy = gt_np[i]
-        ax_x, ax_y = pred_argmax_np[i]
-        ag_x, ag_y = pred_agg_np[i]
+        has_gt = not (gx == 0 and gy == 0)
+        is_first = (i == 0)
 
-        # Plot argmax prediction (red X)
-        ax.scatter(
-            ax_x, ax_y, c="red", s=120, marker="x", linewidths=3, label="Argmax", zorder=3
-        )
+        # Plot each prediction type
+        for method_name in method_names:
+            px, py = preds_np[method_name][i]
+            style = styles.get(method_name, DEFAULT_STYLES.get(method_name, 
+                PredictionStyle(color="gray", marker="o", size=80, label=method_name)))
+            
+            plot_prediction(ax, px, py, style, show_label=is_first)
+            
+            if has_gt:
+                plot_line_to_gt(ax, gx, gy, px, py, style)
 
-        # Plot aggregated prediction (blue triangle)
-        ax.scatter(
-            ag_x, ag_y, c="blue", s=100, marker="^", edgecolors="white", linewidths=1, label="Aggregated", zorder=3
-        )
+        # Plot GT if available
+        if has_gt:
+            plot_prediction(ax, gx, gy, GT_STYLE, show_label=is_first)
 
-        if gx == 0 and gy == 0:
-            # No GT available
-            ax.set_title(
-                f"{part_names[i]}\nNo GT | Argmax-Agg: {np.sqrt((ax_x-ag_x)**2 + (ax_y-ag_y)**2):.1f}px",
-                fontsize=9,
-            )
-            continue
-
-        # Ground truth point (green circle)
-        ax.scatter(
-            gx, gy, c="lime", s=120, marker="o", edgecolors="black", linewidths=2, label="GT", zorder=4
-        )
-
-        # Lines from GT to predictions
-        ax.plot([gx, ax_x], [gy, ax_y], "r--", linewidth=1.5, alpha=0.7)  # GT to argmax
-        ax.plot([gx, ag_x], [gy, ag_y], "b--", linewidth=1.5, alpha=0.7)  # GT to aggregated
-
-        # Title with distances
-        ax.set_title(
-            f"{part_names[i]}\nArgmax: {dist_argmax_np[i]:.1f}px | Agg: {dist_agg_np[i]:.1f}px",
-            fontsize=9,
-        )
+        # Build title with distances
+        title_distances = {method_name: dists_np[method_name][i] for method_name in method_names}
+        ax.set_title(build_title(part_names[i], title_distances, has_gt), fontsize=9)
 
     # Add legend to first subplot
     axes[0].legend(loc="upper left", fontsize=8)
 
-    # Add overall title
+    # Build dynamic title
+    method_labels = " vs ".join([styles.get(m, DEFAULT_STYLES.get(m, 
+        PredictionStyle(color="", marker="", size=0, label=m))).label for m in method_names])
     fig.suptitle(
-        "Combined Keypoint Comparison: GT (green) vs Argmax (red) vs Aggregated (blue)",
+        f"Combined Keypoint Comparison: GT (green) vs {method_labels}",
         fontsize=14,
         fontweight="bold",
     )
 
     plt.tight_layout()
     plt.savefig(
-        os.path.join(save_path, f"{img_name}_combined_keypoints.png"),
+        os.path.join(save_path, f"{img_name}_{batch_idx}_combined_keypoints.png"),
         dpi=200,
         bbox_inches="tight",
     )
