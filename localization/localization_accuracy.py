@@ -88,6 +88,7 @@ def compute_localization_accuracy_centermean(
     K = len(part_dict)
     dist_per_part = torch.zeros(B, K, device=attention.device)
     aggregated_scores = torch.zeros(B, K, device=attention.device)
+    mean_points = torch.zeros(B, K, 2, device=attention.device)
 
     for part_idx, (part_id, part_name) in enumerate(part_dict.items()):
         attrs = part_attribute_mapping_tensor[part_name]
@@ -102,6 +103,7 @@ def compute_localization_accuracy_centermean(
 
         # aggregate scores (e.g., max activation)
         aggregated_scores[:, part_idx] = pre_attri[:, attrs].max(dim=1).values
+        mean_points[:, part_idx, :] = predicted_coords_attr[:, attrs, :].float().mean(dim=1)
 
     # ---- 4) Set distances to -1 for parts not present ---------------------
     valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
@@ -112,7 +114,7 @@ def compute_localization_accuracy_centermean(
         sub_res = dict(zip(list(part_dict.values()), dist_per_part[i].tolist()))
         collector_list.append(sub_res)
 
-    return predicted_coords_attr, dist_per_part, resized_heatmaps, aggregated_scores
+    return mean_points, dist_per_part, resized_heatmaps, aggregated_scores
 
 
 def compute_localization_accuracy_aggregated(
