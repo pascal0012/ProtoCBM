@@ -24,6 +24,7 @@ from localization.visualise import (
 from localization.localization_accuracy import (
     compute_localization_accuracy,
     compute_localization_accuracy_aggregated,
+    compute_localization_accuracy_centermean,
 )
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.train_utils import create_model
@@ -343,7 +344,7 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
 
     print("Computing localization with AGGREGATED method...")
 
-    # ========== METHOD 2: AGGREGATED (New) ==========
+    # ========== METHOD 2: AGGREGATED ==========
     predicted_coords_agg, dists_agg, heatmaps_agg, _ = (
         compute_localization_accuracy_aggregated(
             scores,
@@ -358,15 +359,32 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
         )
     )
 
+    # ========== METHOD 3: Centermean ==========
+    predicted_coords_center, dists_center, heatmaps_center, _ = (
+        compute_localization_accuracy_centermean(
+            scores,
+            saliency_maps,
+            part_bbs,
+            part_gts,
+            part_dict,
+            map_part_to_attr_loc_acc,
+            loc_acc_collector_aggregated,
+            img_size=img_size,
+        )
+    )
+
     print(f"Argmax heatmaps shape: {heatmaps_argmax.shape}")
     print(f"Aggregated heatmaps shape: {heatmaps_agg.shape}")
 
     # Create separate output directories for each method
     out_dir_argmax = os.path.join(output_dir, "argmax_method")
     out_dir_agg = os.path.join(output_dir, "aggregated_method")
+    out_dir_center = os.path.join(output_dir, "centermean_method")
     out_dir_combined = os.path.join(output_dir, "combined_keypoints")
+
     os.makedirs(out_dir_argmax, exist_ok=True)
     os.makedirs(out_dir_agg, exist_ok=True)
+    os.makedirs(out_dir_center, exist_ok=True)
     os.makedirs(out_dir_combined, exist_ok=True)
 
     # Prepare source paths (just the filename)
@@ -410,23 +428,42 @@ def visualize_single_image(image_path, config_path, output_dir=None, skip_compil
         img_size=img_size,
     )
 
-    # ========== COMBINED KEYPOINTS VISUALIZATION ==========
-    # Visualize GT, Argmax and Aggregated keypoints together on one image
-    visualize_combined_keypoints(
+    # Visualize AGGREGATED method with interpolated heatmaps
+    visualize_keypoint_distances_with_heatmaps(
         part_gts,
         img_tensor,
         source_paths,
-        predicted_coords_argmax,
-        predicted_coords_agg,
-        dists_argmax,
-        dists_agg,
+        predicted_coords_center,
+        dists_center,
+        heatmaps_center,  # Original size, will be interpolated in the function
         0,
         list(part_dict.values()),
         batch_idx=batch_idx,
         t_mean=transform_mean,
         t_std=transform_std,
-        save_path=out_dir_combined,
+        save_path=out_dir_center,
         img_size=img_size,
+    )
+
+    # ========== COMBINED KEYPOINTS VISUALIZATION ==========
+    # Call with 3 prediction types
+    visualize_combined_keypoints(
+        gts=part_gts,
+        imgs=img_tensor,
+        img_paths=source_paths,
+        predictions={
+            "argmax": predicted_coords_argmax,
+            "agg": predicted_coords_agg,
+            "center": predicted_coords_center,
+        },
+        distances={
+            "argmax": dists_argmax,
+            "agg": dists_agg,
+            "center": dists_center,
+        },
+        batch_idx=batch_idx,
+        part_names=list(part_dict.values()),
+        save_path=out_dir_combined,
     )
 
     # ========== SAVE INDIVIDUAL ACTIVATION MAPS ==========
