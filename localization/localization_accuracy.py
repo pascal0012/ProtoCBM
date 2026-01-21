@@ -50,6 +50,7 @@ def compute_localization_distance_without_argmaxing(
     part_attribute_mapping_tensor: Dict[str, torch.IntTensor],
     collector_list: List[Dict[str, float]],
     img_size: int = 299,
+    attr_thresh = 0.5
 ):
     """
     Computes localization distance per part without using argmax over attributes.
@@ -108,11 +109,19 @@ def compute_localization_distance_without_argmaxing(
 
     for part_idx, (part_id, part_name) in enumerate(part_dict.items()):
         attrs = part_attribute_mapping_tensor[part_name]
+        #threshold attribute activations and select indices based on that
+        above_threshold = (pre_attri[:, attrs] > attr_thresh).any(dim=0)
+
+        attrs = attrs[above_threshold]
+
+        #if nothing left it sucks, skip for now
+        if attrs.numel() == 0:
+            continue
 
         # distances for all attributes of this part
         sub_dists = dist_attr[:, attrs]  # [B, n_attr]
 
-        # choose min distance among attributes (you may change to mean/max)
+        # choose min distance among attributes
         min_dists = sub_dists.mean(dim=1)
         dist_per_part[:, part_idx] = min_dists
 
