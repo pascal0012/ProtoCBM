@@ -10,8 +10,7 @@ from torch import nn
 
 from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
-from localization.localization_accuracy import (
-    compute_localization_accuracy_without_argmaxing, 
+from localization.localization_accuracy import ( 
     calculate_average_partwise_localization_distance
 )
 from losses import ProtoModLoss
@@ -84,7 +83,7 @@ def epoch_wrapper(
         losses = []
 
         if model.training and args.use_aux:
-            (outputs, similarity_scores, attention_maps), aux_outputs = model(inputs)
+            (outputs, similarity_scores, attention_maps), aux_outputs = model(inputs, attr_labels)
 
             # For X->C we do not train a classifier
             if model.classifier is None:
@@ -94,7 +93,7 @@ def epoch_wrapper(
                     outputs, labels
                 ) + 0.4 * cross_entropy(aux_outputs, labels)
         else:
-            (outputs, similarity_scores, attention_maps) = model(inputs)
+            (outputs, similarity_scores, attention_maps) = model(inputs, attr_labels)
 
             if model.classifier is None:
                 classification_loss = torch.tensor(-1.0, device=device)
