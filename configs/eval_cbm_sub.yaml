@@ -24,6 +24,8 @@ split_dir: data/CUB_processed/class_attr_data_10/test.pkl
 # SUB Dataset settings
 sub_data_dir: data/SUB
 sub_limit: null
+use_majority_voting: true
+save_majority_csv: true
 
 # Checkpoint path - use weight_dir for prepare_model to load directly
 weight_dir: outputs/CBM-new/nZrKg2BmGixeaiDYHlGM8/nZrKg2BmGixeaiDYHlGM8_best_model_seed=5.pth

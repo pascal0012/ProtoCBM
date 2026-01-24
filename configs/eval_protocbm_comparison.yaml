@@ -27,6 +27,8 @@ split_dir: data/CUB_processed/class_attr_data_10/test.pkl
 sub_data_dir: data/SUB
 # Optional: limit number of SUB samples for debugging (null for full dataset)
 sub_limit: null
+use_majority_voting: true
+save_majority_csv: false
 
 # Checkpoint loading options (choose one):
 # Option 1: Direct path to checkpoint file
