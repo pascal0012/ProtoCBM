@@ -10,17 +10,14 @@ import numpy as np
 
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics
 from localization.visualise import (
-    create_attribute_mosaic, 
     visualise_part_segmentations, 
     visualise_localization_acc_boxes, 
     plot_threshold_curve,
     visualize_keypoint_distances
 )
 from localization.localization_accuracy import (
-    calculate_average_partwise_localization_accuracy, 
-    compute_localization_accuracy, 
+    compute_localization_distance, 
     calculate_average_partwise_localization_distance,
-    compute_localization_accuracy_centermean
 )
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS
@@ -82,10 +79,15 @@ def eval(args):
             attr_acc_meter.update(attr_acc, pred.size(0))
             
             # Compute localization accuracy and collect into our collector
-            dist_loc_fct = compute_localization_accuracy if args.use_argmax else compute_localization_accuracy_centermean
-            predicted_coords, dists, _, _ = dist_loc_fct(
-                scores, saliency_maps, part_bbs, part_gts,loader.dataset.part_dict,
-                loader.dataset.map_part_to_attr_loc_acc, loc_acc_collector, img_size=img_size
+            predicted_coords, dists, _, _ = compute_localization_distance(
+                scores, 
+                saliency_maps, 
+                part_bbs, 
+                part_gts,
+                loader.dataset.part_dict,
+                loader.dataset.map_part_to_attr_loc_acc, 
+                loc_acc_collector, img_size=img_size,
+                use_argmax=args.use_argmax
             )
 
             # Compute IoU between part segmentation masks and our saliency maps, for each attribute
