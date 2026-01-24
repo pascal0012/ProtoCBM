@@ -15,12 +15,27 @@ The script evaluates:
 
 A model that truly learns visual concepts should score high on both metrics.
 A model that memorizes class-attribute correlations will score low on both.
+
+Config Options:
+    use_majority_voting: bool (default: False)
+        If True, applies majority voting to denoise the ground-truth attributes.
+        For each class, if >50% of samples have an attribute, all samples get it;
+        if <=50% have it, the attribute is removed for that class.
+        This reduces noise from inconsistent attribute annotations.
+
+    save_majority_csv: bool (default: False)
+        If True and use_majority_voting is True, saves the majority-voted
+        attributes to a CSV file at {log_dir}/eval_sub/majority_voted_attributes.csv
 """
 
 import os
 import pickle
 import sys
+from collections import defaultdict
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import torch
 from tqdm import tqdm
 
@@ -94,7 +109,7 @@ def normalize_bird_name(name):
     return name.replace(" ", "_").lower()
 
 
-def build_bird_class_attribute_cache(val_pkl_path, img_dir):
+def build_bird_class_attribute_cache(val_pkl_path, img_dir, use_majority_voting=False):
     """
     Build a cache mapping bird class names to their original CBM attribute labels.
 
@@ -103,6 +118,9 @@ def build_bird_class_attribute_cache(val_pkl_path, img_dir):
     Args:
         val_pkl_path: Path to validation pkl file with attribute labels
         img_dir: Path to CUB images directory (for class name mapping)
+        use_majority_voting: If True, apply majority voting to denoise attributes.
+            For each class, if >50% of samples have an attribute, all samples get it;
+            if <=50% have it, the attribute is removed for that class.
 
     Returns:
         bird_to_attrs: Dict mapping normalized bird name -> list of 112 binary attribute labels
@@ -117,20 +135,71 @@ def build_bird_class_attribute_cache(val_pkl_path, img_dir):
             bird_name = parts[1]  # e.g., "White_breasted_Nuthatch"
             class_idx_to_bird_name[class_idx] = bird_name
 
-    # Load validation data and build bird -> attributes mapping
+    # Load validation data
     data = pickle.load(open(val_pkl_path, "rb"))
 
-    bird_to_attrs = {}
-    for d in data:
-        class_idx = d["class_label"]
-        if class_idx in class_idx_to_bird_name:
-            bird_name = class_idx_to_bird_name[class_idx]
-            # Store with normalized key for reliable matching
-            normalized_name = normalize_bird_name(bird_name)
-            if normalized_name not in bird_to_attrs:
-                bird_to_attrs[normalized_name] = d["attribute_label"]
+    if use_majority_voting:
+        # Aggregate attributes per class for majority voting
+        class_attr_counts = defaultdict(lambda: {"total": 0, "attr_sums": None})
+
+        for d in data:
+            class_idx = d["class_label"]
+            attrs = d["attribute_label"]
+
+            if class_attr_counts[class_idx]["attr_sums"] is None:
+                class_attr_counts[class_idx]["attr_sums"] = [0] * len(attrs)
+
+            class_attr_counts[class_idx]["total"] += 1
+            for i, attr_val in enumerate(attrs):
+                class_attr_counts[class_idx]["attr_sums"][i] += attr_val
+
+        # Apply majority voting: >50% -> 1, <=50% -> 0
+        bird_to_attrs = {}
+        for class_idx, counts in class_attr_counts.items():
+            if class_idx in class_idx_to_bird_name:
+                bird_name = class_idx_to_bird_name[class_idx]
+                normalized_name = normalize_bird_name(bird_name)
+
+                total = counts["total"]
+                majority_attrs = [
+                    1 if attr_sum / total > 0.5 else 0
+                    for attr_sum in counts["attr_sums"]
+                ]
+                bird_to_attrs[normalized_name] = majority_attrs
+    else:
+        # Original behavior: use first sample's attributes for each class
+        bird_to_attrs = {}
+        for d in data:
+            class_idx = d["class_label"]
+            if class_idx in class_idx_to_bird_name:
+                bird_name = class_idx_to_bird_name[class_idx]
+                normalized_name = normalize_bird_name(bird_name)
+                if normalized_name not in bird_to_attrs:
+                    bird_to_attrs[normalized_name] = d["attribute_label"]
 
     return bird_to_attrs
+
+
+def save_majority_voted_attributes_csv(bird_to_attrs, cbm_attr_names, output_path):
+    """
+    Save majority-voted attributes to a CSV file.
+
+    Args:
+        bird_to_attrs: Dict mapping normalized bird name -> list of binary attribute labels
+        cbm_attr_names: List of CBM attribute names
+        output_path: Path to save the CSV file
+    """
+    rows = []
+    for bird_name, attrs in sorted(bird_to_attrs.items()):
+        row = {"bird_class": bird_name}
+        for i, attr_name in enumerate(cbm_attr_names):
+            row[attr_name] = attrs[i]
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    df.to_csv(output_path, index=False)
+    print(f"Saved majority-voted attributes to: {output_path}")
+    return df
 
 
 def find_original_attribute_indices(
@@ -281,15 +350,31 @@ def eval_sub_attributes(args):
             f"Image directory not found at {img_dir}. Check your image_dir config."
         )
 
+    # Check for majority voting flag
+    use_majority_voting = getattr(args, "use_majority_voting", False)
+    save_majority_csv = getattr(args, "save_majority_csv", False)
+
     print("Building bird class attribute cache...")
-    bird_to_attrs = build_bird_class_attribute_cache(val_pkl_path, img_dir)
+    if use_majority_voting:
+        print("Using MAJORITY VOTING to denoise attributes (>50% threshold)")
+    else:
+        print("Using ORIGINAL per-sample attributes (no denoising)")
+
+    bird_to_attrs = build_bird_class_attribute_cache(
+        val_pkl_path, img_dir, use_majority_voting=use_majority_voting
+    )
     print(f"Cached attributes for {len(bird_to_attrs)} bird classes")
+
+    # Optionally save majority-voted attributes to CSV
+    if use_majority_voting and save_majority_csv:
+        csv_path = os.path.join(args.log_dir, "eval_sub", "majority_voted_attributes.csv")
+        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+        save_majority_voted_attributes_csv(bird_to_attrs, cbm_attr_names, csv_path)
 
     # Tracking metrics
     total_samples = 0
     new_attr_correct = 0  # Correctly predicted the NEW attribute as PRESENT
     original_attr_correct = 0  # Correctly predicted the ORIGINAL attribute as ABSENT
-    original_attr_total = 0  # Total samples where we could find the original attribute
 
     # Per-attribute tracking
     per_attr_new_correct = torch.zeros(N_ATTRIBUTES_CBM)
@@ -328,6 +413,16 @@ def eval_sub_attributes(args):
                     unmatched_attrs.add(sub_attr_name)
                     continue
 
+                # Find ORIGINAL attributes - skip sample if not found
+                # This ensures both metrics are evaluated on the same samples
+                original_cbm_indices = find_original_attribute_indices(
+                    bird_name, sub_attr_name, cbm_attr_names, bird_to_attrs
+                )
+
+                if not original_cbm_indices:
+                    unmatched_birds.add(bird_name)
+                    continue  # Skip this sample entirely
+
                 total_samples += 1
                 per_attr_new_total[new_cbm_idx] += 1    # Count for attribute
 
@@ -339,41 +434,31 @@ def eval_sub_attributes(args):
 
                 # Test 2: Are ALL ORIGINAL attributes predicted as ABSENT?
                 # Note: Birds can have multiple active attributes per body part
-                original_cbm_indices = find_original_attribute_indices(
-                    bird_name, sub_attr_name, cbm_attr_names, bird_to_attrs
-                )
+                # Check each original attribute - ALL must be predicted as absent
+                all_originals_absent = True
+                any_original_present = False
+                for original_cbm_idx in original_cbm_indices:
+                    per_attr_original_total[original_cbm_idx] += 1
+                    if attr_preds[i, original_cbm_idx] == 0:
+                        per_attr_original_correct[original_cbm_idx] += 1
+                    else:
+                        all_originals_absent = False
+                        any_original_present = True
 
-                if not original_cbm_indices:
-                    unmatched_birds.add(bird_name)
-                else:
-                    original_attr_total += 1
+                # Original is "correct" only if ALL original attrs are absent
+                if all_originals_absent:
+                    original_attr_correct += 1
 
-                    # Check each original attribute - ALL must be predicted as absent
-                    all_originals_absent = True
-                    any_original_present = False
-                    for original_cbm_idx in original_cbm_indices:
-                        per_attr_original_total[original_cbm_idx] += 1
-                        if attr_preds[i, original_cbm_idx] == 0:
-                            per_attr_original_correct[original_cbm_idx] += 1
-                        else:
-                            all_originals_absent = False
-                            any_original_present = True
-
-                    # Original is "correct" only if ALL original attrs are absent
-                    if all_originals_absent:
-                        original_attr_correct += 1
-
-                    # Track adaptation vs memorization
-                    if new_is_correct and all_originals_absent:
-                        both_correct += 1  # Model adapts to visual evidence
-                    elif not new_is_correct and any_original_present:
-                        both_wrong += 1  # Model memorizes class-attribute correlations
+                # Track adaptation vs memorization
+                if new_is_correct and all_originals_absent:
+                    both_correct += 1  # Model adapts to visual evidence
+                elif not new_is_correct and any_original_present:
+                    both_wrong += 1  # Model memorizes class-attribute correlations
 
     return {
         "total_samples": total_samples,
         "new_attr_correct": new_attr_correct,
         "original_attr_correct": original_attr_correct,
-        "original_attr_total": original_attr_total,
         "both_correct": both_correct,
         "both_wrong": both_wrong,
         "per_attr_new_correct": per_attr_new_correct,
@@ -383,7 +468,201 @@ def eval_sub_attributes(args):
         "cbm_attr_names": cbm_attr_names,
         "unmatched_birds": unmatched_birds,
         "unmatched_attrs": unmatched_attrs,
+        "use_majority_voting": use_majority_voting,
+        # Components for visualization
+        "model": model,
+        "dataset": dataset,
+        "device": device,
+        "bird_to_attrs": bird_to_attrs,
+        "sub_attr_to_cbm_idx": sub_attr_to_cbm_idx,
     }
+
+
+def visualize_predictions_grid(
+    model,
+    dataset,
+    device,
+    cbm_attr_names,
+    bird_to_attrs,
+    sub_attr_to_cbm_idx,
+    output_dir,
+    n_images_per_grid=10,
+    n_grids=10,
+    n_cols=5,
+    seed=42,
+):
+    """
+    Create multiple grid visualizations showing model predictions for old vs new attributes.
+
+    Args:
+        model: The trained model
+        dataset: SUBDataset instance
+        device: torch device
+        cbm_attr_names: List of CBM attribute names
+        bird_to_attrs: Dict mapping bird name -> original attributes
+        sub_attr_to_cbm_idx: Dict mapping SUB attr name -> CBM index
+        output_dir: Directory to save the visualizations
+        n_images_per_grid: Number of images per grid
+        n_grids: Number of grids to generate
+        n_cols: Number of columns in each grid
+        seed: Random seed for reproducibility
+    """
+    import random
+
+    model.eval()
+
+    # Collect ALL valid samples first
+    print("Collecting valid samples for visualization...")
+    all_valid_samples = []
+    for idx in range(len(dataset)):
+        sample = dataset.dataset[idx]
+        sub_attr_idx = sample["attr_label"]
+        sub_attr_name = dataset.attr_names[sub_attr_idx]
+        bird_label = sample["bird_label"]
+        bird_name = dataset.bird_names[bird_label]
+
+        # Check if we can map this attribute
+        new_cbm_idx = sub_attr_to_cbm_idx.get(sub_attr_name)
+        if new_cbm_idx is None:
+            continue
+
+        # Find original attributes
+        original_cbm_indices = find_original_attribute_indices(
+            bird_name, sub_attr_name, cbm_attr_names, bird_to_attrs
+        )
+        if not original_cbm_indices:
+            continue
+
+        all_valid_samples.append(
+            {
+                "idx": idx,
+                "image": sample["image"],
+                "bird_name": bird_name,
+                "new_attr_name": sub_attr_name.replace("--", "::"),
+                "new_cbm_idx": new_cbm_idx,
+                "original_cbm_indices": original_cbm_indices,
+                "original_attr_names": [
+                    cbm_attr_names[i] for i in original_cbm_indices
+                ],
+            }
+        )
+
+    if not all_valid_samples:
+        print("No valid samples found for visualization")
+        return
+
+    print(f"Found {len(all_valid_samples)} valid samples")
+
+    # Shuffle with seed for reproducibility
+    random.seed(seed)
+    random.shuffle(all_valid_samples)
+
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Generate multiple grids
+    total_needed = n_images_per_grid * n_grids
+    if len(all_valid_samples) < total_needed:
+        print(f"Warning: Only {len(all_valid_samples)} samples available, "
+              f"but {total_needed} requested. Some grids may have fewer images.")
+
+    for grid_idx in range(n_grids):
+        start_idx = grid_idx * n_images_per_grid
+        end_idx = min(start_idx + n_images_per_grid, len(all_valid_samples))
+
+        if start_idx >= len(all_valid_samples):
+            print(f"No more samples for grid {grid_idx + 1}, stopping.")
+            break
+
+        samples = all_valid_samples[start_idx:end_idx]
+        n_images = len(samples)
+        n_rows = (n_images + n_cols - 1) // n_cols
+
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 5 * n_rows))
+        if n_rows == 1:
+            axes = [axes] if n_cols == 1 else list(axes)
+        else:
+            axes = axes.flatten()
+
+        # Hide unused subplots
+        for ax in axes[n_images:]:
+            ax.axis("off")
+
+        with torch.no_grad():
+            for i, sample in enumerate(samples):
+                ax = axes[i]
+
+                # Get image and transform
+                img = sample["image"]
+                if not isinstance(img, np.ndarray):
+                    img_display = np.array(img)
+                else:
+                    img_display = img
+
+                # Get model prediction
+                img_tensor, _, _ = dataset[sample["idx"]]
+                img_tensor = img_tensor.unsqueeze(0).to(device)
+                attr_preds, attr_probs = get_attribute_predictions(model, img_tensor, device)
+                attr_probs = attr_probs.cpu().squeeze(0)
+
+                # Get predictions for new and original attributes
+                new_cbm_idx = sample["new_cbm_idx"]
+                new_prob = attr_probs[new_cbm_idx].item()
+                new_pred = "Present" if new_prob >= 0.5 else "Absent"
+
+                # For original, show the first one (typically there's only one)
+                orig_cbm_idx = sample["original_cbm_indices"][0]
+                orig_prob = attr_probs[orig_cbm_idx].item()
+                orig_pred = "Present" if orig_prob >= 0.5 else "Absent"
+
+                # Extract attribute type and values (e.g., "breast_color" and "red" from "has_breast_color::red")
+                attr_parts = sample["new_attr_name"].split("::")
+                attr_type = attr_parts[0].replace("has_", "").replace("_", " ")
+                new_attr_short = attr_parts[-1]
+                orig_attr_short = sample["original_attr_names"][0].split("::")[-1]
+
+                # Display image
+                ax.imshow(img_display)
+                ax.axis("off")
+
+                # Title: bird class + attribute type + value change
+                bird_name_display = sample["bird_name"].replace("_", " ")
+                ax.set_title(
+                    f"{bird_name_display}\n{attr_type}: {orig_attr_short} → {new_attr_short}",
+                    fontsize=10,
+                    fontweight="bold",
+                )
+
+                # Legend showing predictions
+                legend_text = (
+                    f"Old ({orig_attr_short}): {orig_pred} ({orig_prob:.2f})\n"
+                    f"New ({new_attr_short}): {new_pred} ({new_prob:.2f})"
+                )
+
+                # Color code: green if model adapts (new=present, old=absent), red if memorizes
+                if new_prob >= 0.5 and orig_prob < 0.5:
+                    box_color = "lightgreen"  # Adapts
+                elif new_prob < 0.5 and orig_prob >= 0.5:
+                    box_color = "lightcoral"  # Memorizes
+                else:
+                    box_color = "lightyellow"  # Mixed
+
+                ax.text(
+                    0.5,
+                    -0.05,
+                    legend_text,
+                    transform=ax.transAxes,
+                    fontsize=8,
+                    verticalalignment="top",
+                    horizontalalignment="center",
+                    bbox=dict(boxstyle="round", facecolor=box_color, alpha=0.8),
+                )
+
+        plt.tight_layout(h_pad=3.0)
+        output_path = os.path.join(output_dir, f"predictions_grid_{grid_idx + 1:02d}.png")
+        plt.savefig(output_path, dpi=150, bbox_inches="tight")
+        plt.close()
+        print(f"Saved grid {grid_idx + 1}/{n_grids}: {output_path}")
 
 
 def print_results(results):
@@ -391,23 +670,31 @@ def print_results(results):
     total = results["total_samples"]
     new_correct = results["new_attr_correct"]
     original_correct = results["original_attr_correct"]
-    original_total = results["original_attr_total"]
     both_correct = results["both_correct"]
     both_wrong = results["both_wrong"]
     unmatched_birds = results["unmatched_birds"]
     unmatched_attrs = results["unmatched_attrs"]
+    use_majority_voting = results.get("use_majority_voting", False)
 
     print("\n" + "=" * 70)
     print("SUB BENCHMARK RESULTS")
     print("=" * 70)
 
+    # Show attribute mode
+    if use_majority_voting:
+        print("\nAttribute Mode: MAJORITY VOTING (denoised)")
+        print("  - Attributes with >50% presence in class are set to 1")
+        print("  - Attributes with <=50% presence in class are set to 0")
+    else:
+        print("\nAttribute Mode: ORIGINAL (per-sample, potentially noisy)")
+
     print(f"\nTotal samples evaluated: {total}")
-    print(f"Samples with original attribute found: {original_total}")
+    print("(Only samples where both new and original attributes are in CBM-112)")
 
     # Warnings for unmatched items
     if unmatched_attrs:
         print(
-            f"\nWARNING: {len(unmatched_attrs)} SUB attributes could not be mapped to CBM:"
+            f"\nNOTE: {len(unmatched_attrs)} SUB attributes could not be mapped to CBM (skipped):"
         )
         for attr in sorted(unmatched_attrs)[:5]:  # Show first 5
             print(f"   - {attr}")
@@ -416,7 +703,7 @@ def print_results(results):
 
     if unmatched_birds:
         print(
-            f"\nWARNING: {len(unmatched_birds)} bird classes could not find original attribute:"
+            f"\nNOTE: {len(unmatched_birds)} bird classes had no original attribute in CBM-112 (skipped):"
         )
         for bird in sorted(unmatched_birds)[:5]:  # Show first 5
             print(f"   - {bird}")
@@ -432,28 +719,29 @@ def print_results(results):
     print("\n1. New Attribute Detection (should predict substituted attr as PRESENT):")
     print(f"   Accuracy: {new_acc:.2f}% ({new_correct}/{total})")
 
-    original_acc = 100 * original_correct / original_total if original_total > 0 else 0
-    print("\n2. Original Attribute Detection (should predict original attr as ABSENT):")
-    print(f"   Accuracy: {original_acc:.2f}% ({original_correct}/{original_total})")
+    original_present = total - original_correct
+    original_present_rate = 100 * original_present / total if total > 0 else 0
+    print("\n2. Original Attribute Hallucination (predicts removed attr as PRESENT):")
+    print(f"   Rate: {original_present_rate:.2f}% ({original_present}/{total})")
 
     # Adaptation vs Memorization analysis
     print("\n" + "-" * 70)
     print("ADAPTATION vs MEMORIZATION ANALYSIS")
     print("-" * 70)
 
-    if original_total > 0:
-        adapt_rate = 100 * both_correct / original_total
-        memorize_rate = 100 * both_wrong / original_total
-        mixed_rate = 100 * (original_total - both_correct - both_wrong) / original_total
+    if total > 0:
+        adapt_rate = 100 * both_correct / total
+        memorize_rate = 100 * both_wrong / total
+        mixed_rate = 100 * (total - both_correct - both_wrong) / total
 
         print(
-            f"\n   Adapts (new=1, original=0):    {adapt_rate:5.2f}% ({both_correct}/{original_total})"
+            f"\n   Adapts (new=1, original=0):    {adapt_rate:5.2f}% ({both_correct}/{total})"
         )
         print(
-            f"   Memorizes (new=0, original=1): {memorize_rate:5.2f}% ({both_wrong}/{original_total})"
+            f"   Memorizes (new=0, original=1): {memorize_rate:5.2f}% ({both_wrong}/{total})"
         )
         print(
-            f"   Mixed results:                 {mixed_rate:5.2f}% ({original_total - both_correct - both_wrong}/{original_total})"
+            f"   Mixed results:                 {mixed_rate:5.2f}% ({total - both_correct - both_wrong}/{total})"
         )
 
         print("\n   Interpretation:")
@@ -472,7 +760,7 @@ def print_results(results):
     per_original_correct = results["per_attr_original_correct"]
     per_original_total = results["per_attr_original_total"]
 
-    print(f"\n{'Attribute':<45} {'New Det.':<15} {'Orig. Absent':<15}")
+    print(f"\n{'Attribute':<45} {'New Det.':<15} {'Orig. Present':<15}")
     print("-" * 75)
 
     for cbm_idx in range(N_ATTRIBUTES_CBM):
@@ -481,10 +769,10 @@ def print_results(results):
             new_str = f"{new_acc:5.1f}% ({int(per_new_correct[cbm_idx]):4d}/{int(per_new_total[cbm_idx]):4d})"
 
             if per_original_total[cbm_idx] > 0:
-                orig_acc = (
-                    100 * per_original_correct[cbm_idx] / per_original_total[cbm_idx]
-                )
-                orig_str = f"{orig_acc:5.1f}% ({int(per_original_correct[cbm_idx]):4d}/{int(per_original_total[cbm_idx]):4d})"
+                # Show complement: how often original is predicted as PRESENT (hallucinated)
+                orig_present = per_original_total[cbm_idx] - per_original_correct[cbm_idx]
+                orig_present_rate = 100 * orig_present / per_original_total[cbm_idx]
+                orig_str = f"{orig_present_rate:5.1f}% ({int(orig_present):4d}/{int(per_original_total[cbm_idx]):4d})"
             else:
                 orig_str = "N/A"
 
@@ -498,7 +786,6 @@ if __name__ == "__main__":
 
     args = gather_args()
 
-
     # Print everything into separate file
     out_folder_path = os.path.join(args.log_dir, "eval_sub")
     os.makedirs(out_folder_path, exist_ok=True)
@@ -507,13 +794,28 @@ if __name__ == "__main__":
     path_to_output_txt = os.path.join(args.out_dir_part_seg, "sub_attribute_eval.txt")
     print(f"Writing outputs into {path_to_output_txt}.")
 
-
     print("\n" + "=" * 70)
     print("SUB Dataset - Attribute Prediction Evaluation")
     print("=" * 70 + "\n")
 
     results = eval_sub_attributes(args)
-    
+
+    # Generate visualization grids
+    n_vis_images = getattr(args, "n_vis_images", 10)
+    n_vis_grids = getattr(args, "n_vis_grids", 10)
+    vis_dir = os.path.join(out_folder_path, "prediction_grids")
+    visualize_predictions_grid(
+        model=results["model"],
+        dataset=results["dataset"],
+        device=results["device"],
+        cbm_attr_names=results["cbm_attr_names"],
+        bird_to_attrs=results["bird_to_attrs"],
+        sub_attr_to_cbm_idx=results["sub_attr_to_cbm_idx"],
+        output_dir=vis_dir,
+        n_images_per_grid=n_vis_images,
+        n_grids=n_vis_grids,
+    )
+
     sys.stdout = open(path_to_output_txt, 'a')
 
     print_results(results)
