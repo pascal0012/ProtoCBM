@@ -6,6 +6,7 @@ output/
 outputs/
 outputs/*
 logs/
+base_weights/
 
 # gitignore for uv (melih)
 .venv
@@ -15,3 +16,11 @@ uv.lock
 .env
 wandb/*
 wandb
+
+# gitignore for slurm and claude notes
+*.slurm
+Claude.md
+*.ipynb
+
+# add code for running the original code
+ConceptBottleneck/

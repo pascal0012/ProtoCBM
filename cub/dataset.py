@@ -461,6 +461,191 @@ class CUBLocalizationDataset(Dataset):
                 self.imgID_to_birdBB[int(id_str)] = bb_info
 
 
+class SUBDataset(Dataset):
+    """
+    Dataset for the SUB (Synthetic Attribute Substitutions) benchmark dataset.
+    From HuggingFace: Jessica-bader/SUB
+
+    This dataset tests concept-based models' ability to generalize to novel
+    combinations of known concepts (birds with substituted attributes).
+    """
+
+    def __init__(self, data_dir: str, transform=None, limit: int = None, only_cub_attributes: bool = True):
+        """
+        Args:
+            data_dir: Path to the local SUB dataset directory containing parquet files
+            transform: Image transforms to apply
+            limit: Optional limit on number of samples (for debugging)
+            only_cub_attributes: If True, only include samples where the attribute is also in CUB's CBM-selected attributes
+        """
+        self.data_dir = data_dir
+        self.transform = transform
+
+        # Try to load from HuggingFace datasets library
+        try:
+            from datasets import load_from_disk, load_dataset
+        except ImportError:
+            raise ImportError(
+                "The 'datasets' library is required for SUB dataset. "
+                "Install with: pip install datasets"
+            )
+
+        # Load dataset from local disk or HuggingFace
+        if os.path.exists(data_dir):
+            self.dataset = load_from_disk(data_dir)
+            if isinstance(self.dataset, dict):
+                self.dataset = self.dataset['test']
+        else:
+            # Download from HuggingFace
+            print("Downloading SUB dataset from HuggingFace...")
+            self.dataset = load_dataset("Jessica-bader/SUB", split="test")
+            # Save locally for future use
+            os.makedirs(data_dir, exist_ok=True)
+            self.dataset.save_to_disk(data_dir)
+            print(f"Dataset saved to {data_dir}")
+
+        # Get label mappings
+        self.bird_names = self.dataset.features['bird_label'].names
+        self.attr_names = self.dataset.features['attr_label'].names
+
+        # Filter to only include samples with attributes that exist in CUB's CBM-selected attributes
+        if only_cub_attributes:
+            self.valid_attr_indices, self.sub_to_cbm_attr_map = self._compute_valid_cub_attributes()
+            # Use batched filter for fast filtering via Arrow
+            import numpy as np
+            valid_set = self.valid_attr_indices
+            self.dataset = self.dataset.filter(
+                lambda batch: np.isin(batch['attr_label'], list(valid_set)),
+                batched=True,
+                batch_size=2000
+            )
+            
+            # Store mapping from original attr index to filtered index and update attr_names
+            sorted_valid = sorted(self.valid_attr_indices)
+            self.orig_to_filtered_attr = {orig: i for i, orig in enumerate(sorted_valid)}
+            self.filtered_attr_names = [self.attr_names[i] for i in sorted_valid]
+            print(f"Filtered SUB dataset to {len(self.dataset)} samples with valid CUB attributes "
+                  f"(from {len(self.valid_attr_indices)} valid attribute types)")
+        else:
+            self.valid_attr_indices = None
+            self.sub_to_cbm_attr_map = None
+            self.orig_to_filtered_attr = None
+            self.filtered_attr_names = None
+
+        # Apply limit if specified
+        if limit is not None:
+            self.dataset = self.dataset.select(range(min(limit, len(self.dataset))))
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        sample = self.dataset[idx]
+
+        # Get image (PIL Image from HuggingFace)
+        img = sample['image']
+        if not isinstance(img, Image.Image):
+            img = Image.open(img).convert('RGB')
+        else:
+            img = img.convert('RGB')
+
+        if self.transform:
+            img = self.transform(img)
+
+        bird_label = sample['bird_label']
+        attr_label = sample['attr_label']
+
+        return img, bird_label, attr_label
+
+    def get_bird_name(self, label_idx):
+        """Get bird species name from label index."""
+        return self.bird_names[label_idx]
+
+    def get_attr_name(self, label_idx):
+        """Get attribute name from label index."""
+        return self.attr_names[label_idx]
+
+    def _compute_valid_cub_attributes(self):
+        """
+        Compute which SUB attribute indices are valid (exist in CUB's CBM-selected attributes).
+
+        Returns:
+            valid_attr_indices: Set of SUB attribute indices that are valid
+            sub_to_cbm_attr_map: Dict mapping SUB attribute index to CBM attribute index
+        """
+        import pandas as pd
+        from utils_protocbm.mappings import CBM_SELECTED_CUB_ATTRIBUTE_IDS
+
+        # Get SUB attribute names and convert format (-- to ::)
+        feat_names = list(map(lambda x: x.replace('--', '::'), self.attr_names))
+
+        # Load CUB attribute mapping (1-indexed in file, convert to 0-indexed dict)
+        cub_attr_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                     'data/CUB_200_2011/attributes/attributes.txt')
+        idx_attr = pd.read_csv(cub_attr_path, header=None, sep=' ')[1].to_dict()
+        attr_idx = {v: k for k, v in idx_attr.items()}
+
+        # Map SUB attributes to CUB attribute indices
+        sub_to_cub_index = [attr_idx.get(x, None) for x in feat_names]
+
+        # Find valid SUB attribute indices (those that exist in CUB and are CBM-selected)
+        valid_attr_indices = set()
+        sub_to_cbm_attr_map = {}
+
+        for sub_idx, cub_idx in enumerate(sub_to_cub_index):
+            if cub_idx is not None and cub_idx in CBM_SELECTED_CUB_ATTRIBUTE_IDS:
+                valid_attr_indices.add(sub_idx)
+                cbm_idx = CBM_SELECTED_CUB_ATTRIBUTE_IDS.index(cub_idx)
+                sub_to_cbm_attr_map[sub_idx] = cbm_idx
+
+        return valid_attr_indices, sub_to_cbm_attr_map
+
+    def get_cbm_attr_index(self, sub_attr_idx):
+        """
+        Get the CBM attribute index for a given SUB attribute index.
+        Only works when only_cub_attributes=True was used during initialization.
+
+        Args:
+            sub_attr_idx: The SUB dataset attribute index
+
+        Returns:
+            The corresponding CBM attribute index, or None if not valid
+        """
+        if self.sub_to_cbm_attr_map is None:
+            return None
+        return self.sub_to_cbm_attr_map.get(sub_attr_idx, None)
+
+    def get_filtered_attr_index(self, orig_attr_idx):
+        """
+        Convert original attribute index to filtered (0-indexed contiguous) index.
+        Only works when only_cub_attributes=True was used during initialization.
+
+        Args:
+            orig_attr_idx: The original SUB dataset attribute index
+
+        Returns:
+            The filtered attribute index (0 to num_valid_attrs-1), or None if not valid
+        """
+        if self.orig_to_filtered_attr is None:
+            return orig_attr_idx
+        return self.orig_to_filtered_attr.get(orig_attr_idx, None)
+
+    def get_valid_attr_names(self):
+        """
+        Get attribute names for valid (filtered) attributes only.
+        Returns filtered_attr_names if filtering was applied, otherwise returns all attr_names.
+        """
+        if self.filtered_attr_names is not None:
+            return self.filtered_attr_names
+        return self.attr_names
+
+    def num_valid_attributes(self):
+        """Return the number of valid attributes after filtering."""
+        if self.valid_attr_indices is not None:
+            return len(self.valid_attr_indices)
+        return len(self.attr_names)
+
+
 # TODO: load pkl from path + corresponding file name
 def load_data(args, split: Literal["train", "val", "test"]):
     """

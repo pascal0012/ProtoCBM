@@ -24,15 +24,12 @@ from cub.config import (
     MIN_LR,
 )
 
-# from CUB import gen_cub_synthetic
 from cub.dataset import find_class_imbalance, load_data
-from utils_protocbm.misc import Colors
 from utils_protocbm.train_utils import (
     AverageMeter,
     LossMeter,
     accuracy,
     build_attr_criterion,
-    compute_accuracies,
     compute_attr_accuracy,
     logger_and_summarywriter,
     model_by_mode,
@@ -111,64 +108,6 @@ def compute_standard_losses(
     return losses
 
 
-def run_epoch_simple(
-    model: nn.Module,
-    optimizer,
-    dataloader: torch.utils.data.DataLoader,
-    epoch: int,
-    criterion,
-    args: Namespace,
-    is_training: bool,
-    tb_writer,
-):
-    """
-    A -> Y: Predicting class labels using only attributes with MLP
-    """
-
-    raise NotImplementedError("TODO: implement run_epoch_simple for A->Y models")
-    if is_training:
-        model.train()
-    else:
-        model.eval()
-
-    loss_meter = LossMeter(loss_labels)
-    class_acc_meter = AverageMeter()
-    attr_acc_meter = AverageMeter()
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    for _, data in enumerate(dataloader):
-        inputs, labels = data
-        if isinstance(inputs, list):
-            inputs = torch.stack(inputs).t().float()
-
-        inputs = torch.flatten(inputs, start_dim=1).float()
-        inputs_var = inputs.to(device)
-        labels_var = labels.to(device)
-
-        outputs = model(inputs_var)
-        loss = criterion(outputs, labels_var)
-        loss_meter.update(loss.item(), inputs.size(0))
-
-        class_acc_meter, attr_acc_meter = compute_accuracies(
-            outputs, labels, epoch, class_acc_meter, attr_acc_meter, tb_writer
-        )
-
-        if is_training:
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-    for i in range(loss_meter.n_losses):
-        tb_writer.add_scalar(
-            f"{'Train' if is_training else 'Val'}/{loss_labels[i]}",
-            loss_meter.avg[i],
-            epoch,
-        )
-
-    return loss_meter, class_acc_meter
-
-
 def run_epoch(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -212,7 +151,7 @@ def run_epoch(
     ):
         inputs, labels, attr_labels = batch
 
-                
+        attr_labels_var = None
         if attr_criterion is not None:
             attr_labels = torch.stack(attr_labels, dim=1).float()
             attr_labels_var = attr_labels.to(device)
@@ -260,8 +199,6 @@ def run_epoch(
             )
             attr_acc_meter.update(attr_acc, batch_size)
 
-
-
         total_loss = None
         if attr_criterion is not None:
             if args.bottleneck:
@@ -282,8 +219,8 @@ def run_epoch(
             # finetune
             back_loss = sum(losses)
             total_loss = [back_loss.detach()]
-
-        loss_meter.update(np.array([x.cpu() for x in total_loss]), len(total_loss))
+            
+        loss_meter.update(np.array([x.cpu() for x in total_loss]), inputs.size(0))
 
         if is_training:
             optimizer.zero_grad()
@@ -358,56 +295,33 @@ def train(model: nn.Module, args: Namespace) -> float:
 
         # ----- Training -----
         if args.no_img:
-            raise NotImplementedError("TODO")
-            train_loss_meter, train_acc_meter = run_epoch_simple(
+            raise NotImplementedError("A->Y mode (no_img=True) is not yet implemented")
+
+        train_loss_meter, train_acc_meter, train_attr_acc_meter = run_epoch(
+            model,
+            optimizer,
+            train_loader,
+            epoch,
+            criterion,
+            attr_criterion,
+            args,
+            is_training=True,
+            tb_writer=tb_writer,
+        )
+
+        # ----- Validation -----
+        with torch.no_grad():
+            val_loss_meter, val_acc_meter, val_attr_acc_meter = run_epoch(
                 model,
                 optimizer,
-                train_loader,
-                epoch,
-                criterion,
-                args,
-                is_training=True,
-                tb_writer=tb_writer,
-            )
-        else:
-            train_loss_meter, train_acc_meter, train_attr_acc_meter = run_epoch(
-                model,
-                optimizer,
-                train_loader,
+                val_loader,
                 epoch,
                 criterion,
                 attr_criterion,
                 args,
-                is_training=True,
+                is_training=False,
                 tb_writer=tb_writer,
             )
-
-        # ----- Validation -----
-        with torch.no_grad():
-            if args.no_img:
-                raise NotImplementedError("TODO")
-                val_loss_meter, val_acc_meter = run_epoch_simple(
-                    model,
-                    optimizer,
-                    val_loader,
-                    epoch,
-                    criterion,
-                    args,
-                    is_training=False,
-                    tb_writer=tb_writer,
-                )
-            else:
-                val_loss_meter, val_acc_meter, val_attr_acc_meter = run_epoch(
-                    model,
-                    optimizer,
-                    val_loader,
-                    epoch,
-                    criterion,
-                    attr_criterion,
-                    args,
-                    is_training=False,
-                    tb_writer=tb_writer,
-                )
 
         if args.mode == "XCY":
             current_val_score = val_attr_acc_meter.avg + val_acc_meter.avg
@@ -456,7 +370,7 @@ def train(model: nn.Module, args: Namespace) -> float:
             log_dict["Train/attr_acc"] = f"{train_attr_acc_meter.avg.item():.4f}"
             log_dict["Val/attr_acc"] = f"{val_attr_acc_meter.avg.item():.4f}"
 
-        if args.use_wandb:
+        if getattr(args, "use_wandb", False):
             wandb.log(
                 {
                     **log_dict,
@@ -497,7 +411,7 @@ def train(model: nn.Module, args: Namespace) -> float:
             break
 
     # At the end of training:
-    if args.use_wandb:
+    if getattr(args, "use_wandb", False):
         wandb.finish()
 
     return best_val_acc
@@ -520,7 +434,6 @@ if __name__ == "__main__":
 
     args = argparse.Namespace(**args, config_path=cli_args.config)
     args.model_name = nanoid.generate()
-
 
     # Initialize wandb if requested in config and available
     use_wandb = getattr(args, "use_wandb", False)

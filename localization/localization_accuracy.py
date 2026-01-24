@@ -284,8 +284,3 @@ def calculate_average_partwise_localization_distance(all_distances:list[dict], s
     return res, mean_dist
 
     
-
-
-
-
-
