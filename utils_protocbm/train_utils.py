@@ -145,7 +145,7 @@ def optimizer_and_scheduler_by_name(model: nn.Module, args: Namespace):
 
 
 def model_by_mode(args: Namespace) -> nn.Module:
-    if args.mode == "XCY":
+    if args.mode == "XCY" or args.mode == "XCCY":
         model = ModelXtoCtoY(args)
     elif args.mode == "XY":
         model = ModelXtoY(args)

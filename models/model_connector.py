@@ -8,15 +8,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 # We need this instead of a lamba since pytorch can't serialize lambdas
 def identity(x):
     return x
+
 
 class ModelConnector(nn.Module):
     def __init__(
         self,
         backbone: nn.Module,
-        concept_mapper: Optional[nn.Module], # wie ist das bitte optional?
+        concept_mapper: nn.Module,  # wie ist das bitte optional?
         classifier: Optional[nn.Module] = None,
         use_aux: bool = False,
         mode: Optional[str] = None,
@@ -49,9 +51,8 @@ class ModelConnector(nn.Module):
         else:
             raise ValueError(f"Unknown forward function name: {name}")
 
-
-    def forward_featuresCBM(self, features, aux_forward=False):
-        # take the Backbone featuremaps and map to feature vector 
+    def forward_featuresCBM(self, features, attr_labels=None, aux_forward=False):
+        # take the Backbone featuremaps and map to feature vector
         mapper = self.aux_concept_mapper if aux_forward else self.concept_mapper
         mapped_input = mapper(features)
 
@@ -61,16 +62,15 @@ class ModelConnector(nn.Module):
         # take the feature vector and map to class logits
         cls_input = torch.cat(mapped_input, dim=1)
         if self.mode == "CY":
-                cls_input = cls_input.detach()
-        
+            cls_input = cls_input.detach()
+
         # [class_logits, attr1, attr2, ..., attrN]
         all_out = [self.classifier(cls_input)]
-        all_out.extend(mapped_input)  
-        
+        all_out.extend(mapped_input)
+
         return all_out
 
-
-    def forward_featuresPROTO(self, features, aux_forward=False):
+    def forward_featuresPROTO(self, features, attr_labels=None, aux_forward=False):
         # Saves concept mapper outputs, if any
         maps, sim_scores = None, None
 
@@ -90,23 +90,31 @@ class ModelConnector(nn.Module):
         if self.classifier is not None:
             if self.mode == "CY":
                 output = output.detach()
-            output = self.classifier(output)
+
+            if self.mode == "XCCY" and self.training:
+                # Use ground truth concepts
+                output = self.classifier(attr_labels)
+            else:
+                output = self.classifier(output)
 
         return (output, sim_scores, maps) if not aux_forward else output
-    
 
-    def forward(self, x):
-        #? XCY
+    def forward(self, x, attr_labels):
+        # ? XCY
         if self.training and self.use_aux:
-            assert self.backbone is not None, "Backbone must be defined when using auxiliary outputs."
+            assert self.backbone is not None, (
+                "Backbone must be defined when using auxiliary outputs."
+            )
             # Unpack main feature tuple, construct one tuple
             output, aux_output = self.backbone(x)
-            
+
             # old code  self.forward_stage2(outputs), self.forward_stage2(aux_outputs)
-            return self.forward_fn(output), self.forward_fn(aux_output, aux_forward=True)
+            return self.forward_fn(output, attr_labels), self.forward_fn(
+                aux_output, attr_labels, aux_forward=True
+            )
 
         if self.backbone is not None:
             x = self.backbone(x)
 
-        #? either ATTR (CY) directly or without aux (eval)    
-        return self.forward_fn(x)
+        # ? either ATTR (CY) directly or without aux (eval)
+        return self.forward_fn(x, attr_labels)
