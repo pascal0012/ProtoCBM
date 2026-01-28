@@ -37,7 +37,7 @@ class ProtoMod(nn.Module):
         )  # [batch_size, num_attributes, num_vectors]
 
         # Gets max scores and indices as tuple
-        max_similarity_score, max_indices = similarity_score.max(dim=2)
+        max_similarity_score, max_indices = similarity_score.max(dim=2) # [batch_size, num_attributes]
 
         # For each attribute, get the attention map of that prototype vector that had the maximum activation
         attr_offsets = torch.arange(N_ATTRIBUTES_CBM, device=x.device).view(1, -1) * self.num_vectors

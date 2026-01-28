@@ -41,6 +41,7 @@ loss_labels = [
     "attribute_reg_loss",
     "cpt_loss",
     "decorrelation_loss",
+    "consistency_loss",
 ]
 
 
@@ -105,17 +106,19 @@ def epoch_wrapper(
 
         # Ignore protomod criterion if concepts were already provided
         if args.mode != "CY":
-            loss, attribute_reg_loss, cpt_loss, decorrelation_loss = protomod_criterion(
+            loss, attribute_reg_loss, cpt_loss, decorrelation_loss, consistency_loss = protomod_criterion(
                 similarity_scores, attention_maps, attr_labels
             )
         else:
             attribute_reg_loss = torch.tensor(-1, device=device)
             cpt_loss = torch.tensor(-1, device=device)
             decorrelation_loss = torch.tensor(-1, device=device)
+            consistency_loss = torch.tensor(-1, device=device)
 
         losses.append(attribute_reg_loss)
         losses.append(cpt_loss)
         losses.append(decorrelation_loss)
+        losses.append(consistency_loss)
 
         # Calculate attribute accuracy
         class_acc_meter, attr_acc_meter = compute_accuracies(
