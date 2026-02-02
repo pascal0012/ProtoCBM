@@ -673,21 +673,70 @@ def load_data(args, split: Literal["train", "val", "test"]):
         args.batch_size: batch size for data loader
         args.image_dir: directory where the images are stored
         args.mode: either "CY" or "AY"
+
+    Optional Args:
+        args.distance_loss: whether to use localization distance loss (requires CUBLocalizationDataset)
     """
     # TODO: ONLY TEMP FIX
     if isinstance(split, str):
         split = [split]
 
     pkl_paths = [os.path.join(BASE_DIR, args.data_dir, f"{s}.pkl") for s in split]
-    
+
     is_training = any(['train.pkl' in f for f in pkl_paths])
     transform = get_transform_by_backbone(is_training, args)
-    dataset = CUBDataset(
-        pkl_paths, 
-        args.image_dir, 
-        transform,
-        args.dataset
-    )
+
+    # Check if we need localization data for distance loss
+    use_localization = getattr(args, "distance_loss", False) and is_training
+
+    if use_localization:
+        # Use CUBLocalizationDataset which provides part_gts
+        # Note: only one pkl file should be provided
+        assert len(pkl_paths) == 1, "CUBLocalizationDataset only supports single pkl file"
+        pkl_path = pkl_paths[0]
+
+        # Determine image size from backbone
+        if args.backbone == "inception":
+            img_size = 299
+        elif "dino" in args.backbone:
+            img_size = 224
+        else:
+            raise ValueError(f"Unknown backbone {args.backbone}")
+
+        # Create mask transform (same spatial transforms as image, but no normalization)
+        if args.backbone == "inception":
+            mask_transform = transforms.Compose([
+                transforms.CenterCrop(img_size) if not is_training else transforms.RandomResizedCrop(img_size),
+                transforms.ToTensor(),
+                lambda t: (t > 0.5).float()  # binarize
+            ])
+        elif "dino" in args.backbone:
+            mask_transform = transforms.Compose([
+                transforms.Resize(size=img_size, interpolation=transforms.InterpolationMode.NEAREST),
+                transforms.RandomCrop(img_size) if is_training else transforms.CenterCrop(img_size),
+                transforms.ToTensor(),
+                lambda t: (t > 0.5).float()  # binarize
+            ])
+
+        # Construct data_dir from image_dir
+        data_dir = os.path.join(BASE_DIR, "/".join(args.image_dir.split("/")[:-1]))
+
+        dataset = CUBLocalizationDataset(
+            pkl_path=pkl_path,
+            data_dir=data_dir,
+            img_size=img_size,
+            transform=transform,
+            mask_transform=mask_transform,
+            cbm_attributes=True
+        )
+    else:
+        # Use standard CUBDataset
+        dataset = CUBDataset(
+            pkl_paths,
+            args.image_dir,
+            transform,
+            args.dataset
+        )
 
     if is_training:
         drop_last = True
@@ -697,16 +746,16 @@ def load_data(args, split: Literal["train", "val", "test"]):
         shuffle = False
 
     loader = DataLoader(
-        dataset, 
-        batch_size=args.batch_size, 
-        shuffle=shuffle, 
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=shuffle,
         drop_last=drop_last,
         num_workers=4,  # Multi-process data loading
         pin_memory=True,  # Faster GPU transfer
         persistent_workers=True,  # Keep workers alive between epochs
         prefetch_factor=3,  # Add prefetching
     )
-    
+
     return loader
 
 
