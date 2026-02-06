@@ -158,7 +158,7 @@ if __name__ == '__main__':
     args = gather_args()
 
     # Create out folder for any visualizations / eval outputs
-    out_folder_path = os.path.join(args.log_dir, f"visualization_{args.saliency_method}")
+    out_folder_path = os.path.join(args.log_dir, f"{args.dataset}_visualization_{args.saliency_method}")
     os.makedirs(out_folder_path, exist_ok=True)
     args.out_dir_part_seg = out_folder_path
 

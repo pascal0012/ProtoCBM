@@ -39,6 +39,8 @@ mkdir -p data/CUB_200_2011/part_segmentations/ &&
 tar -xJf AnnotationMasksPerclass.tar.xz -C data/CUB_200_2011/part_segmentations/
 ```
 
+Waterbirds: ```https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz```
+
 #### Out of Distribution Data
 In order to evaluate the concept accuracy of our model we further test it on the SUB Benchmark [[4]](#4). The dataset cont 
 

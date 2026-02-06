@@ -156,7 +156,7 @@ def model_by_mode(args: Namespace) -> nn.Module:
     else:
         raise ValueError(f"Unknown mode {args.mode}")
 
-    if args.checkpoint != "":
+    if bool(getattr(args, "checkpoint", False)):
         loaded = torch.load(
             args.checkpoint,
             map_location="cuda" if torch.cuda.is_available() else "cpu",
