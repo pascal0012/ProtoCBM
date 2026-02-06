@@ -31,8 +31,10 @@ backbone_freeze: false
 expand_dim: 0
 
 # ProtoCBM specifics
-proto_n_vectors: 4
+proto_n_vectors: 1
 loss_weight_attribute_reg: 0.8886
 loss_weight_map_compactness: 0.01
 loss_weight_attribute_decorrelation: 0.008823125255077393
 loss_decorrelation_per_group: true
+dist_loss: true
+distance_loss_weight: 0.1
