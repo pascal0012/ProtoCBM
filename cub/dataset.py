@@ -29,7 +29,8 @@ class CUBDataset(Dataset):
     def __init__(self, 
         pkl_file_paths: list[str], 
         image_dir: str, 
-        transform=None
+        transform=None,
+        dataset='cub'
     ):
         """
         CUBDataset constructor which reads all data from specified (train/val/test) pkl files.
@@ -54,7 +55,15 @@ class CUBDataset(Dataset):
             self.data.extend(pickle.load(open(file_path, 'rb')))
         
         self.transform = transform
-        self.image_dir = image_dir
+
+        # Construct paths
+        self.data_dir = image_dir
+        image_dir = "images"
+        if dataset == "waterbirds":
+            image_dir = "waterbird_complete95_forest2water2"
+        elif dataset == "travelingbirds":
+            image_dir = "TravelingBirds/CUB_fixed/test"
+        self.image_dir = os.path.join(self.data_dir, image_dir)
 
     def __len__(self):
         return len(self.data)
@@ -88,7 +97,7 @@ class CUBDataset(Dataset):
 
 class CUBLocalizationDataset(Dataset):
 
-    def __init__(self, pkl_path, data_dir, img_size, transform, mask_transform, cbm_attributes=True):
+    def __init__(self, pkl_path, data_dir, img_size, transform, mask_transform, cbm_attributes=True, dataset="cub"):
         """
         Args:
             pkl_path: Full path to test or validation pkl
@@ -97,6 +106,7 @@ class CUBLocalizationDataset(Dataset):
             transform: Transform to apply to the image.
             mask_transform: The transformation to apply to the segmentation masks. The spatial transforms must match that of the image transform.
             cbm_attributes: Whether we use cbm-based attributes.
+            dataset: Which CUB subset is used, e.g. normal CUB, Waterbirds or TravelingBirds.
         """
 
         # Load pickled data, load proper split depending on whether APN attributes are used or CBM attributes
@@ -108,7 +118,12 @@ class CUBLocalizationDataset(Dataset):
 
         # Construct paths
         self.data_dir = data_dir
-        self.image_dir = os.path.join(data_dir, "images")
+        image_dir = "images"
+        if dataset == "waterbirds":
+            image_dir = "waterbird_complete95_forest2water2"
+        elif dataset == "travelingbirds":
+            image_dir = "TravelingBirds/CUB_fixed/test"
+        self.image_dir = os.path.join(data_dir, image_dir)
         self.part_seg_dir = os.path.join(data_dir, "part_segmentations")
 
         # Create / store transforms
@@ -485,7 +500,8 @@ def load_data(args, split: Literal["train", "val", "test"]):
     dataset = CUBDataset(
         pkl_paths, 
         args.image_dir, 
-        transform
+        transform,
+        args.dataset
     )
 
     if is_training:

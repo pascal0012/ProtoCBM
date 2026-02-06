@@ -121,7 +121,7 @@ def model_by_mode(args: Namespace) -> nn.Module:
     else:
         raise ValueError(f"Unknown mode {args.mode}")
 
-    if args.checkpoint != "":
+    if bool(getattr(args, "checkpoint", False)):
         model.load_state_dict(
             torch.load(
                 args.checkpoint,
