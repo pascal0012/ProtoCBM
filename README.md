@@ -47,6 +47,20 @@ In order to evaluate the concept accuracy of our model we further test it on the
 Link to the dataset:
 https://huggingface.co/datasets/Jessica-bader/SUB
 
+
+In order to run the evaluation on sub we first have to add some new parameters to the configuration file (if not already included).
+
+```
+# SUB Dataset settings
+dataset: sub
+sub_data_dir: data/SUB
+sub_limit: null
+```
+After addings these configurations we now can run the evluation script.
+```
+python eval_sub_attributes.py --config configs/eval_protocbm.yaml
+```
+
 ## Execution
 
 **Training Script**   
