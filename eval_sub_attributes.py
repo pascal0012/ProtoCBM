@@ -249,7 +249,7 @@ def find_original_attribute_indices(
     return original_indices
 
 
-def get_attribute_predictions(model, inputs, device):
+def get_attribute_predictions(model, inputs, device, return_features=False):
     """
     Get attribute predictions from model output.
 
@@ -257,25 +257,38 @@ def get_attribute_predictions(model, inputs, device):
     - CBMMapper: [class_logits, attr1, attr2, ..., attr112] where each attr is [B, 1]
     - ProtoMod: (class_logits, similarity_scores, attention_maps) where sim_scores is [B, 112]
 
+    Args:
+        model: The trained model
+        inputs: Tuple of input tensors (images, attr_labels)
+        device: Device to run on
+        return_features: If True, return raw feature activations for old/new attribute comparison
+
     Returns:
         attr_preds: Tensor of shape [B, 112] with binary predictions
         attr_probs: Tensor of shape [B, 112] with probabilities
+        attr_features: (Optional) Tensor of shape [B, 112] with raw feature activations
     """
-    outputs = model(inputs)
+    outputs = model(*inputs)
 
     if isinstance(outputs, tuple) and len(outputs) == 3:
         # ProtoMod: (class_logits, similarity_scores, attention_maps)
         _, sim_scores, _ = outputs
         attr_probs = torch.sigmoid(sim_scores)
+        attr_features = sim_scores if return_features else None
 
     elif isinstance(outputs, list) and len(outputs) > 1:
         # CBMMapper: [class_logits, attr1, attr2, ..., attrN]
         attr_outputs = outputs[1:]  # Skip class logits
-        attr_probs = torch.sigmoid(torch.cat(attr_outputs, dim=1))
+        attr_logits = torch.cat(attr_outputs, dim=1)
+        attr_probs = torch.sigmoid(attr_logits)
+        attr_features = attr_logits if return_features else None
     else:
         raise ValueError(f"Unexpected model output format: {type(outputs)}")
 
     attr_preds = (attr_probs >= 0.5).float()
+
+    if return_features:
+        return attr_preds, attr_probs, attr_features
     return attr_preds, attr_probs
 
 
@@ -386,24 +399,40 @@ def eval_sub_attributes(args):
     both_correct = 0    # Adapts: sees new as present AND original as absent
     both_wrong = 0      # Memorizes: sees new as absent AND original as present
 
+    # Track feature differences between old and new attributes
+    feature_diff_stats = {
+        'l1_distances': [],  # L1 distance between old and new feature activations (all cases)
+        # Breakdown by prediction scenarios
+        'adapts': [],  # new=present, old=absent (model adapts)
+        'memorizes': [],  # new=absent, old=present (model memorizes)
+        'both_present': [],  # new=present, old=present
+        'both_absent': [],  # new=absent, old=absent
+    }
+
     # Track unmatched items for debugging
     unmatched_birds = set()
     unmatched_attrs = set()
 
     with torch.no_grad():
-        for inputs, bird_labels, attr_labels in tqdm(
+        for images, bird_labels, attr_labels in tqdm(
             loader, desc="Evaluating SUB Attributes"
         ):
-            inputs = inputs.to(device)
-            batch_size = inputs.size(0)
+            images = images.to(device)
+            attr_labels = attr_labels.float().to(device)
 
-            # Get attribute predictions
-            attr_preds, _ = get_attribute_predictions(model, inputs, device)
+            batch_size = images.size(0)
+
+            # Get attribute predictions and raw features
+            attr_preds, attr_probs, attr_features = get_attribute_predictions(
+                model, (images, attr_labels), device, return_features=True
+            )
             attr_preds = attr_preds.cpu()
+            attr_probs = attr_probs.cpu()
+            attr_features = attr_features.cpu()
 
             for i in range(batch_size):
                 # Get SUB attribute info
-                sub_attr_idx = attr_labels[i].item()                    # index of attr (CUB)
+                sub_attr_idx = int(attr_labels[i].item())               # index of attr (CUB)
                 sub_attr_name = dataset.attr_names[sub_attr_idx]        # name of attr (SUB)
                 bird_name = dataset.bird_names[bird_labels[i].item()]   # bird species name (SUB)
 
@@ -455,6 +484,36 @@ def eval_sub_attributes(args):
                 elif not new_is_correct and any_original_present:
                     both_wrong += 1  # Model memorizes class-attribute correlations
 
+                # Compute feature differences between old and new attributes
+                # Apply sigmoid to get activations in [0, 1] range
+                new_feature_raw = attr_features[i, new_cbm_idx]
+                new_feature = torch.sigmoid(new_feature_raw)
+                new_pred_present = attr_preds[i, new_cbm_idx] == 1
+
+                for original_cbm_idx in original_cbm_indices:
+                    old_feature_raw = attr_features[i, original_cbm_idx]
+                    old_feature = torch.sigmoid(old_feature_raw)
+                    old_pred_present = attr_preds[i, original_cbm_idx] == 1
+
+                    # L1 distance (for all cases) - now between sigmoid activations
+                    l1_dist = torch.abs(new_feature - old_feature).item()
+                    feature_diff_stats['l1_distances'].append(l1_dist)
+
+                    # Categorize by prediction scenario
+                    if new_pred_present and not old_pred_present:
+                        # Model adapts: new=present, old=absent
+                        feature_diff_stats['adapts'].append(l1_dist)
+                    elif not new_pred_present and old_pred_present:
+                        # Model memorizes: new=absent, old=present
+                        feature_diff_stats['memorizes'].append(l1_dist)
+                    elif new_pred_present and old_pred_present:
+                        # Both predicted as present
+                        feature_diff_stats['both_present'].append(l1_dist)
+                    else:
+                        # Both predicted as absent
+                        feature_diff_stats['both_absent'].append(l1_dist)
+
+
     return {
         "total_samples": total_samples,
         "new_attr_correct": new_attr_correct,
@@ -469,6 +528,7 @@ def eval_sub_attributes(args):
         "unmatched_birds": unmatched_birds,
         "unmatched_attrs": unmatched_attrs,
         "use_majority_voting": use_majority_voting,
+        "feature_diff_stats": feature_diff_stats,
         # Components for visualization
         "model": model,
         "dataset": dataset,
@@ -599,21 +659,33 @@ def visualize_predictions_grid(
                 else:
                     img_display = img
 
-                # Get model prediction
-                img_tensor, _, _ = dataset[sample["idx"]]
+                # Get model prediction with features
+                img_tensor, _, attr_label_idx = dataset[sample["idx"]]
                 img_tensor = img_tensor.unsqueeze(0).to(device)
-                attr_preds, attr_probs = get_attribute_predictions(model, img_tensor, device)
+                # Create dummy attribute labels tensor (not actually used by the model for prediction)
+                attr_labels_vis = torch.zeros(1, 112).to(device)
+                attr_preds, attr_probs, attr_features = get_attribute_predictions(
+                    model, (img_tensor, attr_labels_vis), device, return_features=True
+                )
                 attr_probs = attr_probs.cpu().squeeze(0)
+                attr_features = attr_features.cpu().squeeze(0)
 
                 # Get predictions for new and original attributes
                 new_cbm_idx = sample["new_cbm_idx"]
                 new_prob = attr_probs[new_cbm_idx].item()
                 new_pred = "Present" if new_prob >= 0.5 else "Absent"
+                new_feature_raw = attr_features[new_cbm_idx].item()
+                new_feature = 1 / (1 + np.exp(-new_feature_raw))  # Apply sigmoid
 
                 # For original, show the first one (typically there's only one)
                 orig_cbm_idx = sample["original_cbm_indices"][0]
                 orig_prob = attr_probs[orig_cbm_idx].item()
                 orig_pred = "Present" if orig_prob >= 0.5 else "Absent"
+                orig_feature_raw = attr_features[orig_cbm_idx].item()
+                orig_feature = 1 / (1 + np.exp(-orig_feature_raw))  # Apply sigmoid
+
+                # Compute feature difference (between sigmoid activations)
+                feature_diff = abs(new_feature - orig_feature)
 
                 # Extract attribute type and values (e.g., "breast_color" and "red" from "has_breast_color::red")
                 attr_parts = sample["new_attr_name"].split("::")
@@ -633,10 +705,11 @@ def visualize_predictions_grid(
                     fontweight="bold",
                 )
 
-                # Legend showing predictions
+                # Legend showing predictions and feature difference
                 legend_text = (
                     f"Old ({orig_attr_short}): {orig_pred} ({orig_prob:.2f})\n"
-                    f"New ({new_attr_short}): {new_pred} ({new_prob:.2f})"
+                    f"New ({new_attr_short}): {new_pred} ({new_prob:.2f})\n"
+                    f"Feature Δ: {feature_diff:.2f}"
                 )
 
                 # Color code: green if model adapts (new=present, old=absent), red if memorizes
@@ -675,6 +748,7 @@ def print_results(results):
     unmatched_birds = results["unmatched_birds"]
     unmatched_attrs = results["unmatched_attrs"]
     use_majority_voting = results.get("use_majority_voting", False)
+    feature_diff_stats = results.get("feature_diff_stats", {})
 
     print("\n" + "=" * 70)
     print("SUB BENCHMARK RESULTS")
@@ -748,6 +822,49 @@ def print_results(results):
         print("   - 'Adapts': Model correctly recognizes the visual change")
         print("   - 'Memorizes': Model ignores visual evidence, relies on class priors")
         print("   - 'Mixed': Model partially adapts (one metric correct, one wrong)")
+
+    # Feature difference statistics
+    if feature_diff_stats and len(feature_diff_stats.get('l1_distances', [])) > 0:
+        print("\n" + "-" * 70)
+        print("FEATURE DIFFERENCE ANALYSIS (Old vs New Attributes)")
+        print("-" * 70)
+
+        l1_distances = feature_diff_stats['l1_distances']
+
+        print(f"\n   Total comparisons: {len(l1_distances)}")
+        print("\n   Overall L1 Distance (|sigmoid(old) - sigmoid(new)|):")
+        print(f"      Mean:   {np.mean(l1_distances):.4f}")
+        print(f"      Median: {np.median(l1_distances):.4f}")
+        print(f"      Std:    {np.std(l1_distances):.4f}")
+        print(f"      Min:    {np.min(l1_distances):.4f}")
+        print(f"      Max:    {np.max(l1_distances):.4f}")
+        print("      Note: Distances computed between sigmoid-activated features [0, 1]")
+
+        # Breakdown by prediction scenario
+        print("\n   Feature Distance by Prediction Scenario:")
+        print(f"   {'Scenario':<30} {'Count':<10} {'Mean':<10} {'Median':<10} {'Std':<10}")
+        print("   " + "-" * 70)
+
+        scenarios = [
+            ('adapts', 'Adapts (new=1, old=0)'),
+            ('memorizes', 'Memorizes (new=0, old=1)'),
+            ('both_present', 'Both present (new=1, old=1)'),
+            ('both_absent', 'Both absent (new=0, old=0)'),
+        ]
+
+        for key, label in scenarios:
+            distances = feature_diff_stats[key]
+            if len(distances) > 0:
+                print(f"   {label:<30} {len(distances):<10} {np.mean(distances):<10.4f} "
+                      f"{np.median(distances):<10.4f} {np.std(distances):<10.4f}")
+            else:
+                print(f"   {label:<30} {0:<10} {'N/A':<10} {'N/A':<10} {'N/A':<10}")
+
+        print("\n   Interpretation:")
+        print("   - Higher distances = larger changes in model's internal representations")
+        print("   - 'Adapts': Model correctly changes its activation for the new attribute")
+        print("   - 'Memorizes': Model keeps old attribute active despite visual evidence")
+        print("   - 'Both present/absent': Model predicts both attributes the same way")
 
     # Per-attribute breakdown
     print("\n" + "-" * 70)
