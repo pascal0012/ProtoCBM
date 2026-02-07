@@ -231,7 +231,7 @@ def train(model: nn.Module, args: Namespace) -> float:
     
     if any(req in args.val_metric for req in ["seg_iou", "dist_loc"]):
         # TODO: Make data dirs uniform across all datasets / configs, hacky fix here
-        tmp_data_dir = os.path.join(BASE_DIR, "/".join(args.image_dir.split("/")[:-1]))
+        tmp_data_dir = os.path.join(BASE_DIR, args.image_dir)
         tmp_split_dir = os.path.join(BASE_DIR, args.data_dir, "val.pkl")
 
         # Get necessary data for localization, see eval.py or documentation for details
