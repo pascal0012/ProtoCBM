@@ -84,8 +84,8 @@ def epoch_wrapper(
         if not is_training and any(req in args.val_metric for req in ["seg_iou", "dist_loc"]):
             inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts = batch
         elif dist_loss_active:
-            # During training with distance loss, we get localization data
-            inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts = batch
+            # During training with distance loss, CUBKeypointDataset returns 4-tuple
+            inputs, labels, attr_labels, part_gts = batch
         else:
             inputs, labels, attr_labels = batch
 
