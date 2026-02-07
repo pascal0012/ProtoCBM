@@ -65,7 +65,7 @@ def epoch_wrapper(
     attr_acc_meter = AverageMeter()
 
     # get arg for distance_loss, distance_loss_weight
-    dist_loss_active = getattr(args, "distance_loss", False) and is_training
+    dist_loss_active = getattr(args, "distance_loss", False)
     dist_loss_weight = getattr(args, "distance_loss_weight", 1.0)
 
 

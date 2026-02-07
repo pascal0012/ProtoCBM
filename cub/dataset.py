@@ -931,7 +931,7 @@ def load_data(args, split: Literal["train", "val", "test"]):
     transform = get_transform_by_backbone(is_training, args)
 
     # Check if we need localization data for distance loss
-    use_localization = getattr(args, "distance_loss", False) and is_training
+    use_localization = getattr(args, "distance_loss", False)
 
     if use_localization:
         # Use CUBKeypointDataset which provides part_gts with augmentation-aware transforms
