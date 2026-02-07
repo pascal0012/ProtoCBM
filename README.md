@@ -52,7 +52,6 @@ To run the evaluation on the SUB dataset we first have to add some new parameter
 
 ```
 # SUB Dataset settings
-dataset: sub
 sub_data_dir: data/SUB
 sub_limit: null
 ```
@@ -64,6 +63,18 @@ python eval_sub_attributes.py --config configs/eval_protocbm.yaml
 ## Train the Model
 
 The repository contains trainings scripts for two distinct models. Namely the `CBM` and the `ProtoCBM` models. For trainings these models we need the respective script `train_protocbm.py` or `train_cbm.py` and the correct config file.
+
+### Training with Distance Loss
+
+To train the ProtoCBM model with the localization distance loss, add the following parameters to your config file (e.g. `configs/protocbm.yaml`):
+
+```yaml
+distance_loss: true
+distance_loss_weight: 0.1
+```
+
+This enables a loss term that penalizes the distance between predicted attention map locations and ground-truth part keypoints from the CUB dataset. The `distance_loss_weight` controls the relative weight of this term in the total loss.
+
 
 ## Evaluate the Model
 
