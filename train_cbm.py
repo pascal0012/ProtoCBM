@@ -18,6 +18,9 @@ from tqdm import tqdm
 
 import nanoid
 
+from models.model_connector import ModelConnector
+
+
 from cub.config import (
     BASE_DIR,
     LR_DECAY_SIZE,
@@ -109,7 +112,7 @@ def compute_standard_losses(
 
 
 def run_epoch(
-    model: torch.nn.Module,
+    model: ModelConnector,
     optimizer: torch.optim.Optimizer,
     dataloader: torch.utils.data.DataLoader,
     epoch: int,
@@ -123,11 +126,11 @@ def run_epoch(
     For the rest of the networks (X -> A, cotraining, simple finetune)
     """
     loss_labels = []
-    if args.mode == "XC":
+    if args.bottleneck:
         loss_labels = ["attr_loss"]
     else:
         if attr_criterion is not None:
-            loss_labels = ["class_loss", "attr_loss"]
+            loss_labels = ["total_loss", "class_loss", "attr_loss"]
         else:
             loss_labels = ["class_loss"]
 
@@ -162,7 +165,7 @@ def run_epoch(
         )
 
         if is_training and args.use_aux:
-            outputs, aux_outputs = model(inputs)
+            outputs, aux_outputs = model(inputs, attr_labels_var)
             losses = compute_auxiliary_losses(
                 outputs,
                 aux_outputs,
@@ -175,17 +178,42 @@ def run_epoch(
 
         # testing or no aux logits
         else:
-            outputs = model(inputs)
+            outputs = model(inputs, attr_labels_var)
             losses = compute_standard_losses(
                 outputs, labels, attr_labels_var, criterion, attr_criterion, args
             )
 
+        logging_loss = None
+        if attr_criterion is not None:
+            if args.bottleneck:
+                # XC mode: loss_labels = ["attr_loss"]
+                backprop_loss = sum(losses) / args.n_attributes
+                logging_loss = [backprop_loss.detach()]
+
+            else:
+                # cotraining: loss_labels = ["total_loss", "class_loss", "attr_loss"]
+                attr_loss = sum(losses[1:])
+                if args.normalize_loss:
+                    backprop_loss = losses[0] + attr_loss
+                    backprop_loss = backprop_loss / (1 + args.attr_loss_weight * args.n_attributes)
+                else:
+                    backprop_loss = losses[0] + attr_loss
+
+                logging_loss = [backprop_loss.detach(), losses[0].detach(), attr_loss.detach()]
+        else:
+            # finetune: loss_labels = ["class_loss"]
+            backprop_loss = sum(losses)
+            logging_loss = [backprop_loss.detach()]
+
+        loss_meter.update(np.array([x.cpu() for x in logging_loss]), inputs.size(0))
+        
+        ## Accuracy calculation
+        # class acc
         if not args.bottleneck:
             softmax_outputs = torch.nn.Softmax(dim=1)(outputs[0])
             class_acc = accuracy(softmax_outputs, labels, topk=(1,))
             class_acc_meter.update(class_acc[0], softmax_outputs.size(0))
-
-        ## Accuracy calculation
+        
         # Compute attribute accuracy (bottleneck always, otherwise when using images)
         if args.mode not in ["XY", "CY"]:
             pred_attr = outputs
@@ -198,50 +226,28 @@ def run_epoch(
                 reshaped_preds, attr_labels_var
             )
             attr_acc_meter.update(attr_acc, batch_size)
-
-        total_loss = None
-        if attr_criterion is not None:
-            if args.bottleneck:
-                total_loss = [(sum(losses) / args.n_attributes).detach()]
-                back_loss = sum(losses) / args.n_attributes
-
-            else:
-                # cotraining, loss by class prediction and loss by attribute prediction have the same weight
-                attr_loss = sum(losses[1:])
-                if args.normalize_loss:
-                    back_loss = losses[0] + attr_loss
-                    back_loss = back_loss / (1 + args.attr_loss_weight * args.n_attributes)
-                else:
-                    back_loss = losses[0] + attr_loss
-                
-                total_loss = (back_loss.detach(), attr_loss.detach())
-        else:
-            # finetune
-            back_loss = sum(losses)
-            total_loss = [back_loss.detach()]
-            
-        loss_meter.update(np.array([x.cpu() for x in total_loss]), inputs.size(0))
-
+           
+        
         if is_training:
             optimizer.zero_grad()
-            back_loss.backward()
+            backprop_loss.backward()
             optimizer.step()
 
     train_mode = "train" if is_training else "val"
     if args.mode != "XC":
         tb_writer.add_scalar(
-            f"Class Accuracy/{train_mode}", class_acc_meter.avg.item(), epoch
+            f"Class Accuracy/{train_mode}", class_acc_meter.avg, epoch
         )
 
     if args.mode not in ["XY", "CY"]:
         tb_writer.add_scalar(
-            f"Attribute Accuracy/{train_mode}", attr_acc_meter.avg.item(), epoch
+            f"Attribute Accuracy/{train_mode}", attr_acc_meter.avg, epoch
         )
 
     return loss_meter, class_acc_meter, attr_acc_meter
 
 
-def train(model: nn.Module, args: Namespace) -> float:
+def train(model: ModelConnector, args: Namespace) -> float:
     """Train function for CUB models.
 
     Args:
@@ -277,7 +283,7 @@ def train(model: nn.Module, args: Namespace) -> float:
         loss_labels = ["attr_loss"]
     else:
         if attr_criterion is not None:
-            loss_labels = ["class_loss", "attr_loss"]
+            loss_labels = ["total_loss", "class_loss", "attr_loss"]
         else:
             loss_labels = ["class_loss"]
 
@@ -362,13 +368,13 @@ def train(model: nn.Module, args: Namespace) -> float:
 
         # Except XC always log class accuracy
         if args.mode != "XC":
-            log_dict["Train/class_acc"] = f"{train_acc_meter.avg.item():.4f}"
-            log_dict["Val/class_acc"] = f"{val_acc_meter.avg.item():.4f}"
+            log_dict["Train/class_acc"] = f"{train_acc_meter.avg:.4f}"
+            log_dict["Val/class_acc"] = f"{val_acc_meter.avg:.4f}"
 
         # do not log attribute accuracy
         if args.mode not in ["XY", "CY"]:
-            log_dict["Train/attr_acc"] = f"{train_attr_acc_meter.avg.item():.4f}"
-            log_dict["Val/attr_acc"] = f"{val_attr_acc_meter.avg.item():.4f}"
+            log_dict["Train/attr_acc"] = f"{train_attr_acc_meter.avg:.4f}"
+            log_dict["Val/attr_acc"] = f"{val_attr_acc_meter.avg:.4f}"
 
         if getattr(args, "use_wandb", False):
             wandb.log(
@@ -452,7 +458,7 @@ if __name__ == "__main__":
             args.use_wandb = False
 
     print("creating model...")
-    model = model_by_mode(args)
+    model: ModelConnector = model_by_mode(args)
     model.name = args.model_name
     print("Running model with name:", model.name)
 

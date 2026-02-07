@@ -17,7 +17,12 @@ dataset: cub
 vis_every_n: 10
 seed: 1
 # checkpoint: outputs/ProtoCBM/models/best_model_1.pth
-checkpoint: outputs/ProtoCBM/models/xcy2.pth
+checkpoint: outputs/ProtoCBM_IntegrateIoU2/best_model_1.pth
+
+# SUB Dataset settings
+dataset: sub
+sub_data_dir: data/SUB
+sub_limit: null
 
 
 batch_size: 64
@@ -27,5 +32,4 @@ backbone: inception
 backbone_pretrained: true
 backbone_freeze: false
 expand_dim: 0
-
 proto_n_vectors: 1

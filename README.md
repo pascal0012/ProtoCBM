@@ -47,13 +47,25 @@ In order to evaluate the concept accuracy of our model we further test it on the
 Link to the dataset:
 https://huggingface.co/datasets/Jessica-bader/SUB
 
-## Execution
 
-**Training Script**   
-Something somethin
+To run the evaluation on the SUB dataset we first have to add some new parameters to the configuration file (if not already included).
 
-**Evaluation Script**   
-something something
+```
+# SUB Dataset settings
+dataset: sub
+sub_data_dir: data/SUB
+sub_limit: null
+```
+After addings these configurations we now can run the evluation script.
+```
+python eval_sub_attributes.py --config configs/eval_protocbm.yaml
+```
+
+## Train the Model
+
+The repository contains trainings scripts for two distinct models. Namely the `CBM` and the `ProtoCBM` models. For trainings these models we need the respective script `train_protocbm.py` or `train_cbm.py` and the correct config file.
+
+## Evaluate the Model
 
 ## References
 <a id="1">[1]</a> 

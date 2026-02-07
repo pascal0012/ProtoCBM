@@ -25,11 +25,9 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=
     """
 
     if args.saliency_method == "attention":
-        if args.model_name == "apn":
-            assert attr_labels is not None, "APN forward pass requires attribute labels"
-            preds, similarity_scores, attention_maps = model(inputs, attr_labels)
-        else:
-            preds, similarity_scores, attention_maps = model(inputs)
+        assert attr_labels is not None, "APN forward pass requires attribute labels"
+        preds, similarity_scores, attention_maps = model(inputs, attr_labels)
+        
         if args.concept_mapper != "protomod":
             raise ValueError(
                 f"Saliency method attention was selected, but concept_mapper is {args.concept_mapper}, must be protomod!"

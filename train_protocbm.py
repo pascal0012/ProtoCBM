@@ -11,10 +11,10 @@ from torch import nn
 from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
 from localization.localization_accuracy import (
-    compute_localization_distance, 
+    compute_localization_distance,
     calculate_average_partwise_localization_distance
 )
-from losses import ProtoModLoss
+from losses import ProtoModLoss, LocalizationDistanceLoss
 from utils_protocbm.eval_utils import (
     LocalizationMeter,
     eval_part_segmentation_iou,
@@ -42,6 +42,7 @@ loss_labels = [
     "cpt_loss",
     "decorrelation_loss",
     "consistency_loss",
+    "localization_distance_loss",
 ]
 
 
@@ -55,12 +56,18 @@ def epoch_wrapper(
     tb_writer,
     cross_entropy: nn.CrossEntropyLoss,
     protomod_criterion: ProtoModLoss,
+    localization_criterion: LocalizationDistanceLoss = None,
 ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     loss_meter = LossMeter(loss_labels)
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
+
+    # get arg for distance_loss, distance_loss_weight
+    dist_loss_active = getattr(args, "distance_loss", False) and is_training
+    dist_loss_weight = getattr(args, "distance_loss_weight", 1.0)
+
 
     if is_training:
         model.train()
@@ -76,6 +83,9 @@ def epoch_wrapper(
 
         if not is_training and any(req in args.val_metric for req in ["seg_iou", "dist_loc"]):
             inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts = batch
+        elif dist_loss_active:
+            # During training with distance loss, CUBKeypointDataset returns 4-tuple
+            inputs, labels, attr_labels, part_gts = batch
         else:
             inputs, labels, attr_labels = batch
 
@@ -115,10 +125,22 @@ def epoch_wrapper(
             decorrelation_loss = torch.tensor(-1, device=device)
             consistency_loss = torch.tensor(-1, device=device)
 
+
+
         losses.append(attribute_reg_loss)
         losses.append(cpt_loss)
         losses.append(decorrelation_loss)
         losses.append(consistency_loss)
+
+        # Compute localization distance loss if active
+        if dist_loss_active and localization_criterion is not None:
+            localization_distance_loss = dist_loss_weight * localization_criterion(
+                attention_maps, part_gts
+            )
+        else:
+            localization_distance_loss = torch.tensor(-1.0, device=device)
+
+        losses.append(localization_distance_loss)
 
         # Calculate attribute accuracy
         class_acc_meter, attr_acc_meter = compute_accuracies(
@@ -219,6 +241,19 @@ def train(model: nn.Module, args: Namespace) -> float:
 
     cross_entropy, protomod_criterion = create_criterions(model, args)
 
+    # Create localization distance loss criterion if needed
+    localization_criterion = None
+    if getattr(args, "distance_loss", False):
+        # Get part dictionary and attribute mapping from the train loader dataset
+        if hasattr(train_loader.dataset, 'part_dict') and hasattr(train_loader.dataset, 'map_part_to_attr_loc_acc'):
+            localization_criterion = LocalizationDistanceLoss(
+                part_dict=train_loader.dataset.part_dict,
+                part_attribute_mapping=train_loader.dataset.map_part_to_attr_loc_acc,
+                img_size=train_loader.dataset.img_size
+            ).to(device)
+        else:
+            raise ValueError("distance_loss is enabled but train_loader.dataset does not have required attributes")
+
     best_val_epoch, best_val_metric = -1, -math.inf
 
     scheduler_stop_epoch = (
@@ -239,6 +274,7 @@ def train(model: nn.Module, args: Namespace) -> float:
                 tb_writer=tb_writer,
                 cross_entropy=cross_entropy,
                 protomod_criterion=protomod_criterion,
+                localization_criterion=localization_criterion,
             )
         )
 
@@ -255,6 +291,7 @@ def train(model: nn.Module, args: Namespace) -> float:
                     tb_writer=tb_writer,
                     cross_entropy=cross_entropy,
                     protomod_criterion=protomod_criterion,
+                    localization_criterion=localization_criterion,
                 )
             )
 
