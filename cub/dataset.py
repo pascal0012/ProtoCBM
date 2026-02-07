@@ -271,6 +271,12 @@ class CUBKeypointDataset(CUBDataset):
                     li, ri = l_idx - 1, r_idx - 1  # convert to 0-indexed
                     kp[[li, ri]] = kp[[ri, li]]
 
+                # Also swap invisible_mask for the same pairs so the
+                # restore at the end zeros the correct (post-swap) indices
+                for l_idx, r_idx in _LR_SWAP_PAIRS:
+                    li, ri = l_idx - 1, r_idx - 1
+                    invisible_mask[li], invisible_mask[ri] = invisible_mask[ri].clone(), invisible_mask[li].clone()
+
         else:
             # Eval: deterministic transforms
             if self.backbone == "inception":
