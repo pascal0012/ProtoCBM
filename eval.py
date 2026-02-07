@@ -53,6 +53,12 @@ def eval(args):
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
 
+    if args.dataset == "waterbirds":
+        class_acc_meter_water = AverageMeter()
+        attr_acc_meter_water = AverageMeter()
+        class_acc_meter_land = AverageMeter()
+        attr_acc_meter_land = AverageMeter()
+
     thresholds = np.arange(0, 1.05, 0.05)
     threshold_ious = torch.zeros((len(thresholds), len(attribute_names)), device=device)
     threshold_counts = torch.zeros((len(thresholds), len(attribute_names)), device=device)
@@ -62,7 +68,11 @@ def eval(args):
             # Cast data to device
             data = [v.to(device) if torch.is_tensor(v) else v for v in data]
 
-            inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts = data
+            if args.dataset == "waterbirds":
+                inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts, waterbirds_labels = data
+            else:
+                inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts = data
+
             # attr_labels = torch.stack(attr_labels).t()  # N x A
             attr_labels = torch.stack(attr_labels, dim=1).float().to(device)
 
@@ -77,6 +87,37 @@ def eval(args):
             # Calculate attribute accuracy
             attr_acc = binary_accuracy(scores, attr_labels)
             attr_acc_meter.update(attr_acc, pred.size(0))
+
+            # For waterbirds: Calculate class accuracy and binary accuracy separated for water and landbirds
+            if args.dataset == "waterbirds":
+
+                # Extract water birds data
+                water_mask = waterbirds_labels == 1
+                pred_w   = pred[water_mask]
+                labels_w = labels[water_mask]
+                scores_w = scores[water_mask]
+                attr_w   = attr_labels[water_mask]
+
+                # Calculate accuracies for waterbirds
+                if pred_w.size(0) > 0:
+                    class_acc_w = accuracy(pred_w, labels_w, topk=(1,))
+                    class_acc_meter_water.update(class_acc_w[0], pred_w.size(0))
+                    attr_acc_w = binary_accuracy(scores_w, attr_w)
+                    attr_acc_meter_water.update(attr_acc_w, pred_w.size(0))
+
+                # Extract land birds data
+                land_mask  = waterbirds_labels == 0
+                pred_l   = pred[land_mask]
+                labels_l = labels[land_mask]
+                scores_l = scores[land_mask]
+                attr_l   = attr_labels[land_mask]
+
+                # Calculate accuracies for landbirds
+                if pred_l.size(0) > 0:
+                    class_acc_l = accuracy(pred_l, labels_l, topk=(1,))
+                    class_acc_meter_land.update(class_acc_l[0], pred_l.size(0))
+                    attr_acc_l = binary_accuracy(scores_l, attr_l)
+                    attr_acc_meter_land.update(attr_acc_l, pred_l.size(0))
             
             # Compute localization accuracy and collect into our collector
             predicted_coords, dists, _, _ = compute_localization_distance(
@@ -148,6 +189,14 @@ def eval(args):
     print("\n--------- ACCURACIES ---------\n")
     print(f"Mean Classification Accuracy: {class_acc_meter.avg.item():.4f}")
     print(f"Mean Attribute Accuracy: {attr_acc_meter.avg.item():.4f}")
+
+    # For waterbirds: Show accuracy metrics separated by land and water
+    if args.dataset == "waterbirds":
+        print(f"\nMean Waterbirds Classification Accuracy: {class_acc_meter_water.avg.item():.4f}")
+        print(f"Mean Waterbirds Attribute Accuracy: {attr_acc_meter_water.avg.item():.4f}")
+
+        print(f"\nMean Landbirds Classification Accuracy: {class_acc_meter_land.avg.item():.4f}")
+        print(f"Mean Landbirds Attribute Accuracy: {attr_acc_meter_land.avg.item():.4f}")
 
 
 if __name__ == '__main__':

@@ -9,6 +9,7 @@ import torchvision.transforms as transforms
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
+import pandas as pd
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -118,9 +119,12 @@ class CUBLocalizationDataset(Dataset):
 
         # Construct paths
         self.data_dir = data_dir
+        self.dataset = dataset
         image_dir = "images"
         if dataset == "waterbirds":
             image_dir = "waterbird_complete95_forest2water2"
+            # Load metadata containing whether image is land or water, 0 = land, 1 = water
+            self.waterbirds_metadata = pd.read_csv(os.path.join(data_dir, image_dir, "metadata.csv"))
         elif dataset == "travelingbirds":
             image_dir = "TravelingBirds/CUB_fixed/test"
         self.image_dir = os.path.join(data_dir, image_dir)
@@ -175,7 +179,8 @@ class CUBLocalizationDataset(Dataset):
         # Trim unnecessary paths, load image
         path_parts = img_path.split('/')
         cub_index = path_parts.index("images")
-        img_source_path = os.path.join(self.image_dir , "/".join(path_parts[cub_index+1:]))
+        bird_name = "/".join(path_parts[cub_index+1:])
+        img_source_path = os.path.join(self.image_dir , bird_name)
         img = Image.open(img_source_path).convert('RGB')
 
         og_img_w, og_img_h = img.width, img.height
@@ -213,6 +218,11 @@ class CUBLocalizationDataset(Dataset):
             part_gts = self._adjust_gt_to_center_crop(part_gts, og_img_w, og_img_h, self.center_crop_size)
 
         part_gts[original_part_gt_mask] = 0
+
+        # Get waterbirds indicator (0=land, 1=water), if dataset is waterbirds, and return along with data
+        if self.dataset == "waterbirds":
+            return img, class_label, attr_label, part_seg_masks, part_bbs, img_source_path, part_gts, \
+            int(self.waterbirds_metadata[self.waterbirds_metadata["img_filename"] == bird_name]["split"].values[0])
         return img, class_label, attr_label, part_seg_masks, part_bbs, img_source_path, part_gts
 
     def resize_bounding_boxes(self, box_tensor, og_size, new_size):
