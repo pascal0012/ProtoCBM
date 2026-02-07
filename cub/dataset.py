@@ -2,10 +2,12 @@
     Contains the code regarding datasets and data loading
 """
 import pickle
+import random
 from typing import Literal
 
 import torch
 import torchvision.transforms as transforms
+import torchvision.transforms.functional as TF
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
@@ -18,7 +20,7 @@ from localization.part_seg_iou import create_mapping_attributes_to_part_seg_grou
 from utils_protocbm.mappings import PART_SEG_GROUPS
 from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm, create_part_attribute_mapping_tensor
 from utils_protocbm.mappings import MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS
-from cub.config import BASE_DIR, N_ATTRIBUTES
+from cub.config import BASE_DIR
 
 
 class CUBDataset(Dataset):
@@ -93,6 +95,243 @@ class CUBDataset(Dataset):
         attr_label = img_data['attribute_label']
 
         return img, class_label, attr_label
+
+
+# Part indices (1-indexed) for left/right swap on horizontal flip
+_LR_SWAP_PAIRS = [(7, 11), (8, 12), (9, 13)]  # left eye<->right eye, left leg<->right leg, left wing<->right wing
+
+
+class CUBKeypointDataset(CUBDataset):
+    """
+    Training dataset that extends CUBDataset with ground truth keypoint locations.
+    Applies spatial transforms to keypoints consistently with image augmentations.
+    Returns (img, class_label, attr_label, part_gts).
+    """
+
+    def __init__(
+        self,
+        pkl_file_paths,
+        image_dir,
+        data_dir,
+        img_size,
+        backbone,
+        is_training,
+        dataset='cub',
+        cbm_attributes=True,
+    ):
+        """
+        Args:
+            pkl_file_paths: List of paths to pickle files
+            image_dir: Directory containing images (passed to CUBDataset)
+            data_dir: Root of CUB_200_2011 (for parts/, images.txt, bounding_boxes.txt)
+            img_size: Target image size (299 for inception, 224 for dino)
+            backbone: 'inception' or 'dino*'
+            is_training: Whether this is for training (random augmentations) or eval (deterministic)
+            dataset: Dataset variant ('cub', 'waterbirds', 'travelingbirds')
+            cbm_attributes: Whether to use CBM attribute subset
+        """
+        # Initialize parent without transform — we handle transforms manually
+        super().__init__(pkl_file_paths, image_dir, transform=None, dataset=dataset)
+
+        self.img_size = img_size
+        self.backbone = backbone
+        self.is_training = is_training
+
+        # Build normalization transform (applied after spatial transforms)
+        if backbone == "inception":
+            self.color_jitter = transforms.ColorJitter(brightness=32/255, saturation=(0.5, 1.5)) if is_training else None
+            self.normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[2, 2, 2])
+        else:  # dino
+            self.color_jitter = None
+            self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+
+        # Load keypoint data (same parsing as CUBLocalizationDataset._create_localization_accuracy_dicts)
+        parts_locs_path = os.path.join(data_dir, "parts", "part_locs.txt")
+        parts_mapping_path = os.path.join(data_dir, "parts", "parts.txt")
+        imgID_imgName_mapping_path = os.path.join(data_dir, "images.txt")
+
+        # Part ID -> part name
+        self.part_dict = {}
+        with open(parts_mapping_path) as f:
+            for line in f:
+                line = line.strip()
+                pid, part_name = line.split(" ", maxsplit=1)
+                self.part_dict[int(pid)] = part_name
+
+        # Image name -> image ID
+        self.imgName_to_imgID = {}
+        with open(imgID_imgName_mapping_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                id_str, *text_parts = line.split()
+                key = " ".join(text_parts)
+                self.imgName_to_imgID[key] = int(id_str)
+
+        # Image ID -> list of [part_id, x, y, visible]
+        self.img_id_to_part_locs = {}
+        with open(parts_locs_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                id_str, *info = line.split()
+                info = [float(x) for x in info]
+                img_id = int(id_str)
+                if img_id not in self.img_id_to_part_locs:
+                    self.img_id_to_part_locs[img_id] = [info]
+                else:
+                    self.img_id_to_part_locs[img_id].append(info)
+
+        # Build part-to-attribute mapping for LocalizationDistanceLoss
+        if cbm_attributes:
+            map_parts_to_attributes = map_attribute_ids_from_cub_to_cbm(MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS)
+        else:
+            map_parts_to_attributes = MAP_CUB_PARTS_GROUPS_TO_CUB_ATTRIBUTE_IDS
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.map_part_to_attr_loc_acc = create_part_attribute_mapping_tensor(map_parts_to_attributes, device)
+
+    def _get_keypoints(self, img_path):
+        """Load raw keypoint coordinates for an image. Returns [K, 2] tensor and visibility mask."""
+        img_name = os.sep.join(img_path.split(os.sep)[-2:])
+        img_id = self.imgName_to_imgID[img_name]
+        part_infos = self.img_id_to_part_locs[img_id]
+
+        keypoints = []
+        for info in part_infos:
+            # info: [part_id, x, y, visible]
+            if info[-1] == 0.0:
+                keypoints.append(torch.zeros(2))
+            else:
+                keypoints.append(torch.tensor([info[1], info[2]], dtype=torch.float32))
+        return torch.stack(keypoints, dim=0)  # [K, 2]
+
+    def _apply_transforms_with_keypoints(self, img, keypoints):
+        """
+        Apply spatial + color transforms to image and keypoints consistently.
+        Returns transformed image tensor and adjusted keypoints [K, 2].
+        """
+        og_w, og_h = img.width, img.height
+        # Track which keypoints were originally invisible
+        invisible_mask = (keypoints == 0).all(dim=1)
+
+        if self.is_training:
+            # --- Color jitter (before spatial, only for inception) ---
+            if self.color_jitter is not None:
+                img = self.color_jitter(img)
+
+            if self.backbone == "inception":
+                # RandomResizedCrop(299): get random crop params in original coords
+                i, j, h, w = transforms.RandomResizedCrop.get_params(
+                    img, scale=(0.08, 1.0), ratio=(3./4., 4./3.)
+                )
+                img = TF.resized_crop(img, i, j, h, w, [self.img_size, self.img_size])
+                
+                # Transform keypoints: shift by crop origin, then scale to target size
+                kp = keypoints.clone()
+                kp[:, 0] = (kp[:, 0] - j) * self.img_size / w  # x
+                kp[:, 1] = (kp[:, 1] - i) * self.img_size / h  # y
+            
+            else:
+                # DINO: Resize(224) then RandomCrop(224)
+                # Resize: scale shorter side to 224, maintain aspect ratio
+                smaller_side = float(min(og_w, og_h))
+                ratio = float(self.img_size) / smaller_side
+                new_w = int(og_w * ratio)
+                new_h = int(og_h * ratio)
+                img = TF.resize(img, [new_h, new_w], interpolation=TF.InterpolationMode.BILINEAR)
+                kp = keypoints.clone()
+                kp[:, 0] *= (new_w / og_w)  # x
+                kp[:, 1] *= (new_h / og_h)  # y
+
+                # RandomCrop(224)
+                i, j, h, w = transforms.RandomCrop.get_params(img, [self.img_size, self.img_size])
+                img = TF.crop(img, i, j, h, w)
+                kp[:, 0] -= j  # x offset
+                kp[:, 1] -= i  # y offset
+
+            # Mark out-of-bounds keypoints as invisible
+            out_of_bounds = (
+                (kp[:, 0] < 0) | (kp[:, 0] >= self.img_size) |
+                (kp[:, 1] < 0) | (kp[:, 1] >= self.img_size)
+            )
+            kp[out_of_bounds] = 0
+
+            # RandomHorizontalFlip (p=0.5)
+            if random.random() < 0.5:
+                img = TF.hflip(img)
+
+                # Flip x coordinates for visible keypoints
+                visible = ~((kp == 0).all(dim=1))
+                kp[visible, 0] = self.img_size - 1 - kp[visible, 0]
+                
+                # Swap left/right part pairs (0-indexed: parts are 1-indexed in CUB)
+                for l_idx, r_idx in _LR_SWAP_PAIRS:
+                    li, ri = l_idx - 1, r_idx - 1  # convert to 0-indexed
+                    kp[[li, ri]] = kp[[ri, li]]
+
+        else:
+            # Eval: deterministic transforms
+            if self.backbone == "inception":
+                # CenterCrop(299)
+                img = TF.center_crop(img, [self.img_size, self.img_size])
+                kp = keypoints.clone()
+                left = (og_w - self.img_size) / 2
+                top = (og_h - self.img_size) / 2
+                kp[:, 0] -= left
+                kp[:, 1] -= top
+            else:
+                # DINO: Resize(224) + CenterCrop(224)
+                smaller_side = float(min(og_w, og_h))
+                ratio = float(self.img_size) / smaller_side
+                new_w = int(og_w * ratio)
+                new_h = int(og_h * ratio)
+                img = TF.resize(img, [new_h, new_w], interpolation=TF.InterpolationMode.BILINEAR)
+                kp = keypoints.clone()
+                kp[:, 0] *= (new_w / og_w)
+                kp[:, 1] *= (new_h / og_h)
+
+                img = TF.center_crop(img, [self.img_size, self.img_size])
+                left = (new_w - self.img_size) / 2
+                top = (new_h - self.img_size) / 2
+                kp[:, 0] -= left
+                kp[:, 1] -= top
+
+            # Mark out-of-bounds as invisible
+            out_of_bounds = (
+                (kp[:, 0] < 0) | (kp[:, 0] >= self.img_size) |
+                (kp[:, 1] < 0) | (kp[:, 1] >= self.img_size)
+            )
+            kp[out_of_bounds] = 0
+
+        # Restore originally invisible keypoints
+        kp[invisible_mask] = 0
+
+        # Convert to tensor and normalize
+        img = TF.to_tensor(img)
+        img = self.normalize(img)
+
+        return img, kp.to(torch.int16)
+
+    def __getitem__(self, idx):
+        img_data = self.data[idx]
+        img_path = img_data['img_path']
+
+        # Load image using correct path (same logic as CUBDataset)
+        path_parts = img_path.split('/')
+        cub_index = path_parts.index("images")
+        img_source_path = os.path.join(self.image_dir, "/".join(path_parts[cub_index+1:]))
+        img = Image.open(img_source_path).convert('RGB')
+
+        class_label = img_data['class_label']
+        attr_label = img_data['attribute_label']
+
+        # Load and transform keypoints together with image
+        keypoints = self._get_keypoints(img_source_path)
+        img, part_gts = self._apply_transforms_with_keypoints(img, keypoints)
+
+        return img, class_label, attr_label, part_gts
 
 
 class CUBLocalizationDataset(Dataset):
@@ -541,6 +780,7 @@ class SUBDataset(Dataset):
             self.filtered_attr_names = [self.attr_names[i] for i in sorted_valid]
             print(f"Filtered SUB dataset to {len(self.dataset)} samples with valid CUB attributes "
                   f"(from {len(self.valid_attr_indices)} valid attribute types)")
+            
         else:
             self.valid_attr_indices = None
             self.sub_to_cbm_attr_map = None
@@ -690,11 +930,7 @@ def load_data(args, split: Literal["train", "val", "test"]):
     use_localization = getattr(args, "distance_loss", False) and is_training
 
     if use_localization:
-        # Use CUBLocalizationDataset which provides part_gts
-        # Note: only one pkl file should be provided
-        assert len(pkl_paths) == 1, "CUBLocalizationDataset only supports single pkl file"
-        pkl_path = pkl_paths[0]
-
+        # Use CUBKeypointDataset which provides part_gts with augmentation-aware transforms
         # Determine image size from backbone
         if args.backbone == "inception":
             img_size = 299
@@ -703,31 +939,17 @@ def load_data(args, split: Literal["train", "val", "test"]):
         else:
             raise ValueError(f"Unknown backbone {args.backbone}")
 
-        # Create mask transform (same spatial transforms as image, but no normalization)
-        if args.backbone == "inception":
-            mask_transform = transforms.Compose([
-                transforms.CenterCrop(img_size) if not is_training else transforms.RandomResizedCrop(img_size),
-                transforms.ToTensor(),
-                lambda t: (t > 0.5).float()  # binarize
-            ])
-        elif "dino" in args.backbone:
-            mask_transform = transforms.Compose([
-                transforms.Resize(size=img_size, interpolation=transforms.InterpolationMode.NEAREST),
-                transforms.RandomCrop(img_size) if is_training else transforms.CenterCrop(img_size),
-                transforms.ToTensor(),
-                lambda t: (t > 0.5).float()  # binarize
-            ])
-
-        # Construct data_dir from image_dir
+        # Construct data_dir (CUB_200_2011 root) from image_dir
         data_dir = os.path.join(BASE_DIR, "/".join(args.image_dir.split("/")[:-1]))
 
-        dataset = CUBLocalizationDataset(
-            pkl_path=pkl_path,
+        dataset = CUBKeypointDataset(
+            pkl_file_paths=pkl_paths,
+            image_dir=args.image_dir,
             data_dir=data_dir,
             img_size=img_size,
-            transform=transform,
-            mask_transform=mask_transform,
-            cbm_attributes=True
+            backbone=args.backbone,
+            is_training=is_training,
+            dataset=args.dataset,
         )
     else:
         # Use standard CUBDataset
