@@ -50,15 +50,7 @@ https://huggingface.co/datasets/Jessica-bader/SUB
 
 To run the evaluation on the SUB dataset we first have to add some new parameters to the configuration file (if not already included).
 
-```
-# SUB Dataset settings
-sub_data_dir: data/SUB
-sub_limit: null
-```
-After addings these configurations we now can run the evluation script.
-```
-python eval_sub_attributes.py --config configs/eval_protocbm.yaml
-```
+
 
 ## Train the Model
 
@@ -77,6 +69,28 @@ This enables a loss term that penalizes the distance between predicted attention
 
 
 ## Evaluate the Model
+
+The repository contains different evaluation methods to test the effectiveness of the trained model.
+
+
+
+### Evaluate on SUB-Benchmark
+
+To evaluate either ProtoCBM or vanilla CBM on the SUB benchmark either create a new config or modify an existing config with the following parameters.
+
+```yaml
+sub_data_dir: data/SUB
+sub_limit: null
+use_majority_voting: true
+save_majority_csv: false
+```
+
+After setting up the config the benchmark can be run with the following script:
+
+```bash
+python eval_sub_attributes.py --config configs/protocbm.yaml
+```
+
 
 ## References
 <a id="1">[1]</a> 
