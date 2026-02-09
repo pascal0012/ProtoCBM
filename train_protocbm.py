@@ -12,7 +12,7 @@ from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
 from localization.localization_accuracy import (
     compute_localization_distance,
-    calculate_average_partwise_localization_distance
+    calculate_average_partwise_localization_distance,
 )
 from losses import ProtoModLoss, LocalizationDistanceLoss
 from utils_protocbm.eval_utils import (
@@ -41,7 +41,6 @@ loss_labels = [
     "attribute_reg_loss",
     "cpt_loss",
     "decorrelation_loss",
-    "consistency_loss",
     "localization_distance_loss",
 ]
 
@@ -68,7 +67,6 @@ def epoch_wrapper(
     dist_loss_active = getattr(args, "distance_loss", False)
     dist_loss_weight = getattr(args, "distance_loss_weight", 1.0)
 
-
     if is_training:
         model.train()
     else:
@@ -78,11 +76,20 @@ def epoch_wrapper(
             loc_acc_meter = []
 
     for batch in dataloader:
-
         batch = [v.to(device) if torch.is_tensor(v) else v for v in batch]
 
-        if not is_training and any(req in args.val_metric for req in ["seg_iou", "dist_loc"]):
-            inputs, labels, attr_labels, part_seg_masks, part_bbs, source_paths, part_gts = batch
+        if not is_training and any(
+            req in args.val_metric for req in ["seg_iou", "dist_loc"]
+        ):
+            (
+                inputs,
+                labels,
+                attr_labels,
+                part_seg_masks,
+                part_bbs,
+                source_paths,
+                part_gts,
+            ) = batch
         elif dist_loss_active:
             # During training with distance loss, CUBKeypointDataset returns 4-tuple
             inputs, labels, attr_labels, part_gts = batch
@@ -95,7 +102,9 @@ def epoch_wrapper(
         losses = []
 
         if model.training and args.use_aux:
-            (outputs, similarity_scores, attention_maps), aux_outputs = model(inputs, attr_labels)
+            (outputs, similarity_scores, attention_maps), aux_outputs = model(
+                inputs, attr_labels
+            )
 
             # For X->C we do not train a classifier
             if model.classifier is None:
@@ -116,21 +125,17 @@ def epoch_wrapper(
 
         # Ignore protomod criterion if concepts were already provided
         if args.mode != "CY":
-            loss, attribute_reg_loss, cpt_loss, decorrelation_loss, consistency_loss = protomod_criterion(
+            loss, attribute_reg_loss, cpt_loss, decorrelation_loss = protomod_criterion(
                 similarity_scores, attention_maps, attr_labels
             )
         else:
             attribute_reg_loss = torch.tensor(-1, device=device)
             cpt_loss = torch.tensor(-1, device=device)
             decorrelation_loss = torch.tensor(-1, device=device)
-            consistency_loss = torch.tensor(-1, device=device)
-
-
 
         losses.append(attribute_reg_loss)
         losses.append(cpt_loss)
         losses.append(decorrelation_loss)
-        losses.append(consistency_loss)
 
         # Compute localization distance loss if active
         if dist_loss_active and localization_criterion is not None:
@@ -168,19 +173,25 @@ def epoch_wrapper(
             optimizer.step()
         else:
             # Compute metrics based on provided string(s)
-            if 'seg_loc' in args.val_metric:
+            if "seg_loc" in args.val_metric:
                 loc_meter.update(
                     eval_part_segmentation_iou(
                         attention_maps,
                         part_seg_masks,
                         dataloader.dataset.map_attr_id_to_part_seg_group,
-                        dataloader.dataset.unmatched_attr_mask
+                        dataloader.dataset.unmatched_attr_mask,
                     )
                 )
-            if 'dist_loc' in args.val_metric: 
+            if "dist_loc" in args.val_metric:
                 compute_localization_distance(
-                    similarity_scores, attention_maps, part_bbs, part_gts, dataloader.dataset.part_dict,
-                    dataloader.dataset.map_part_to_attr_loc_acc, loc_acc_meter, img_size=inputs.shape[-1]
+                    similarity_scores,
+                    attention_maps,
+                    part_bbs,
+                    part_gts,
+                    dataloader.dataset.part_dict,
+                    dataloader.dataset.map_part_to_attr_loc_acc,
+                    loc_acc_meter,
+                    img_size=inputs.shape[-1],
                 )
 
     for i in range(loss_meter.n_losses):
@@ -189,29 +200,33 @@ def epoch_wrapper(
             loss_meter.avg[i],
             epoch,
         )
-    
+
     # Metric(s) used to evaluate overall quality of model during validation
     # IMPORTANT: Must be maximized! So if any metric is minimize->better, invert it.
     val_metric = torch.tensor(0.0)
     if not is_training:
         for val_metric_str in args.val_metric:
-            if val_metric_str == "class_acc":      # --- Class accuracy
+            if val_metric_str == "class_acc":  # --- Class accuracy
                 val_metric += class_acc_meter.avg.squeeze().cpu()
             if val_metric_str == "concept_acc":  # --- Concept accuracy
                 val_metric += attr_acc_meter.avg.squeeze().cpu()
             if val_metric_str == "seg_iou":  # --- Segmentation IoU
-                val_metric += loc_meter.compute(dataloader.dataset.map_attr_id_to_part_seg_group)
-            if val_metric_str == "dist_loc": # --- Localization distance
-                val_metric += torch.tensor(
-                    -calculate_average_partwise_localization_distance(loc_acc_meter, MAP_RESULT_GROUPS_TO_CUB_GROUPS, verbose=False)[1]
+                val_metric += loc_meter.compute(
+                    dataloader.dataset.map_attr_id_to_part_seg_group
                 )
-    
+            if val_metric_str == "dist_loc":  # --- Localization distance
+                val_metric += torch.tensor(
+                    -calculate_average_partwise_localization_distance(
+                        loc_acc_meter, MAP_RESULT_GROUPS_TO_CUB_GROUPS, verbose=False
+                    )[1]
+                )
+
         tb_writer.add_scalar(
             "Val/Metric",
             val_metric,
             epoch,
         )
-    
+
     return (
         loss_meter,
         class_acc_meter,
@@ -228,14 +243,16 @@ def train(model: nn.Module, args: Namespace) -> float:
     optimizer, scheduler = optimizer_and_scheduler_by_name(model, args)
 
     train_loader = load_data(args, "train")
-    
+
     if any(req in args.val_metric for req in ["seg_iou", "dist_loc"]):
         # TODO: Make data dirs uniform across all datasets / configs, hacky fix here
         tmp_data_dir = os.path.join(BASE_DIR, args.image_dir)
         tmp_split_dir = os.path.join(BASE_DIR, args.data_dir, "val.pkl")
 
         # Get necessary data for localization, see eval.py or documentation for details
-        val_loader, _, _, _ = get_localization_loader(model, tmp_data_dir, tmp_split_dir, args)
+        val_loader, _, _, _ = get_localization_loader(
+            model, tmp_data_dir, tmp_split_dir, args
+        )
     else:
         val_loader = load_data(args, "val")
 
@@ -245,14 +262,18 @@ def train(model: nn.Module, args: Namespace) -> float:
     localization_criterion = None
     if getattr(args, "distance_loss", False):
         # Get part dictionary and attribute mapping from the train loader dataset
-        if hasattr(train_loader.dataset, 'part_dict') and hasattr(train_loader.dataset, 'map_part_to_attr_loc_acc'):
+        if hasattr(train_loader.dataset, "part_dict") and hasattr(
+            train_loader.dataset, "map_part_to_attr_loc_acc"
+        ):
             localization_criterion = LocalizationDistanceLoss(
                 part_dict=train_loader.dataset.part_dict,
                 part_attribute_mapping=train_loader.dataset.map_part_to_attr_loc_acc,
-                img_size=train_loader.dataset.img_size
+                img_size=train_loader.dataset.img_size,
             ).to(device)
         else:
-            raise ValueError("distance_loss is enabled but train_loader.dataset does not have required attributes")
+            raise ValueError(
+                "distance_loss is enabled but train_loader.dataset does not have required attributes"
+            )
 
     best_val_epoch, best_val_metric = -1, -math.inf
 
@@ -329,7 +350,9 @@ def train(model: nn.Module, args: Namespace) -> float:
         if epoch <= scheduler_stop_epoch:
             scheduler.step()
         if epoch - best_val_epoch >= 100:
-            logger.write("Early stopping because validation metric hasn't improved for a long time")
+            logger.write(
+                "Early stopping because validation metric hasn't improved for a long time"
+            )
             break
 
     logger.close()
