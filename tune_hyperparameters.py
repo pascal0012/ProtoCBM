@@ -23,8 +23,8 @@ def objective(args: Namespace, trial: optuna.Trial):
     # args.weight_decay = trial.suggest_categorical("weight_decay", [0.0004, 0.00004])  # type: ignore
 
     # ProtoMod specific properties
-    args.proto_n_vectors = trial.suggest_int("proto_n_vectors", 1, 10)  # type: ignore
-    args.loss_decorrelation_per_group = trial.suggest_categorical("loss_decorrelation_per_group", [True, False])  # type: ignore
+    # args.proto_n_vectors = trial.suggest_int("proto_n_vectors", 1, 10)  # type: ignore
+    # args.loss_decorrelation_per_group = trial.suggest_categorical("loss_decorrelation_per_group", [True, False])  # type: ignore
 
     # Weighting of loss terms
     args.loss_weight_attribute_reg = trial.suggest_float( # type: ignore

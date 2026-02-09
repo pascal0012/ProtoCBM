@@ -1,4 +1,4 @@
-mode: XCY   # XY and XC and CY
+mode: XCCY
 n_attributes: 112
 
 model_name: protocbm
@@ -8,16 +8,16 @@ concept_activation: none    # "relu" or "sigmoid"
 saliency_method: attention
 IoU_threshold: 0.5
 val_metric:   # Options: [class_acc, concept_acc, seg_iou, dist_loc], multiple can be combined.
-  - dist_loc
+  - class_acc
+  - concept_acc
 
-image_dir: data/CUB_200_2011/images
+image_dir: data/CUB_200_2011
 data_dir: data/CUB_processed/class_attr_data_10
 checkpoint: ""
 seed: 1
 
-epochs: 75
+epochs: 150
 batch_size: 64
-lr: 0.001
 optimizer: sgd
 scheduler_step: 20
 weight_decay: 0.00004
@@ -30,7 +30,4 @@ expand_dim: 0
 
 # ProtoCBM specifics
 proto_n_vectors: 1
-loss_weight_attribute_reg: 1.0
-loss_weight_map_compactness: 0.1
-loss_weight_attribute_decorrelation: 4e-2
 loss_decorrelation_per_group: true
