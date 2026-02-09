@@ -467,7 +467,7 @@ class CUBLocalizationDataset(Dataset):
         # Get waterbirds indicator (0=land, 1=water), if dataset is waterbirds, and return along with data
         if self.dataset == "waterbirds":
             return img, class_label, attr_label, part_seg_masks, part_bbs, img_source_path, part_gts, \
-            int(self.waterbirds_metadata[self.waterbirds_metadata["img_filename"] == bird_name]["split"].values[0])
+            int(self.waterbirds_metadata[self.waterbirds_metadata["img_filename"] == bird_name]["place"].values[0])
         return img, class_label, attr_label, part_seg_masks, part_bbs, img_source_path, part_gts
 
     def resize_bounding_boxes(self, box_tensor, og_size, new_size):

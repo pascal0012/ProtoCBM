@@ -138,7 +138,7 @@ def epoch_wrapper(
                 attention_maps, part_gts
             )
         else:
-            localization_distance_loss = torch.tensor(-1.0, device=device)
+            localization_distance_loss = torch.tensor(0.0, device=device)
 
         losses.append(localization_distance_loss)
 
