@@ -3,7 +3,7 @@ mode: XCY   # XY and XC and CY
 n_attributes: 112
 no_img: False
 use_attr: True
-bottleneck: True
+bottleneck: False
 
 # Model specifics
 model_name: cbm
@@ -11,7 +11,7 @@ concept_mapper: cbm
 concept_activation: none    # "relu" or "sigmoid"
 
 # Training Paths
-log_dir: outputs/CBM
+log_dir: outputs/CBM-DEBUG
 image_dir: data/CUB_200_2011
 dataset: cub
 data_dir: data/CUB_processed/class_attr_data_10

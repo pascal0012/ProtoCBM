@@ -368,8 +368,10 @@ def train(model: ModelConnector, args: Namespace) -> float:
 
         # Except XC always log class accuracy
         if args.mode != "XC":
-            log_dict["Train/class_acc"] = f"{train_acc_meter.avg:.4f}"
-            log_dict["Val/class_acc"] = f"{val_acc_meter.avg:.4f}"
+            train_class_acc = train_acc_meter.avg.item() if torch.is_tensor(train_acc_meter.avg) else train_acc_meter.avg
+            val_class_acc = val_acc_meter.avg.item() if torch.is_tensor(val_acc_meter.avg) else val_acc_meter.avg
+            log_dict["Train/class_acc"] = f"{train_class_acc:.4f}"
+            log_dict["Val/class_acc"] = f"{val_class_acc:.4f}"
 
         # do not log attribute accuracy
         if args.mode not in ["XY", "CY"]:

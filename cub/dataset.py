@@ -112,8 +112,7 @@ class CUBKeypointDataset(CUBDataset):
     def __init__(
         self,
         pkl_file_paths,
-        image_dir,
-        data_dir,
+        data_path,
         img_size,
         backbone,
         is_training,
@@ -123,8 +122,7 @@ class CUBKeypointDataset(CUBDataset):
         """
         Args:
             pkl_file_paths: List of paths to pickle files
-            image_dir: Directory containing images (passed to CUBDataset)
-            data_dir: Root of CUB_200_2011 (for parts/, images.txt, bounding_boxes.txt)
+            data_path: Root of CUB_200_2011 (for parts/, images.txt, images/)
             img_size: Target image size (299 for inception, 224 for dino)
             backbone: 'inception' or 'dino*'
             is_training: Whether this is for training (random augmentations) or eval (deterministic)
@@ -132,7 +130,7 @@ class CUBKeypointDataset(CUBDataset):
             cbm_attributes: Whether to use CBM attribute subset
         """
         # Initialize parent without transform — we handle transforms manually
-        super().__init__(pkl_file_paths, image_dir, transform=None, dataset=dataset)
+        super().__init__(pkl_file_paths, data_path, transform=None, dataset=dataset)
 
         self.img_size = img_size
         self.backbone = backbone
@@ -147,9 +145,9 @@ class CUBKeypointDataset(CUBDataset):
             self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
         # Load keypoint data (same parsing as CUBLocalizationDataset._create_localization_accuracy_dicts)
-        parts_locs_path = os.path.join(data_dir, "parts", "part_locs.txt")
-        parts_mapping_path = os.path.join(data_dir, "parts", "parts.txt")
-        imgID_imgName_mapping_path = os.path.join(data_dir, "images.txt")
+        parts_locs_path = os.path.join(data_path, "parts", "part_locs.txt")
+        parts_mapping_path = os.path.join(data_path, "parts", "parts.txt")
+        imgID_imgName_mapping_path = os.path.join(data_path, "images.txt")
 
         # Part ID -> part name
         self.part_dict = {}
@@ -943,7 +941,7 @@ def load_data(args, split: Literal["train", "val", "test"]):
     transform = get_transform_by_backbone(is_training, args)
 
     # Check if we need localization data for distance loss
-    use_localization = getattr(args, "distance_loss", False) and is_training
+    use_localization = getattr(args, "distance_loss", False)
 
     if use_localization:
         # Use CUBKeypointDataset which provides part_gts with augmentation-aware transforms
@@ -955,13 +953,12 @@ def load_data(args, split: Literal["train", "val", "test"]):
         else:
             raise ValueError(f"Unknown backbone {args.backbone}")
 
-        # Construct data_dir (CUB_200_2011 root) from image_dir
-        data_dir = os.path.join(BASE_DIR, "/".join(args.image_dir.split("/")[:-1]))
+        # Construct data_path (CUB_200_2011 root) from image_dir
+        data_path = os.path.join(BASE_DIR, args.image_dir)
 
         dataset = CUBKeypointDataset(
             pkl_file_paths=pkl_paths,
-            image_dir=args.image_dir,
-            data_dir=data_dir,
+            data_path=data_path,
             img_size=img_size,
             backbone=args.backbone,
             is_training=is_training,

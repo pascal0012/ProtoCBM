@@ -2,20 +2,6 @@
 Evaluate trained models on the SUB dataset for ATTRIBUTE prediction accuracy.
 This is adapted from: https://github.com/ExplainableML/sub/blob/main/CBM_testing/test_ind_cbm_example.py
 
-The SUB benchmark tests whether concept-based models learn actual visual concepts
-or just memorize class-attribute correlations. It does this by showing images where
-a bird's attribute has been visually substituted (e.g., a Cardinal with blue breast
-instead of red).
-
-The script evaluates:
-1. NEW attribute detection: Does the model see the substituted attribute as PRESENT?
-   (High accuracy = model adapts to visual evidence)
-2. ORIGINAL attribute detection: Does the model see the original attribute as ABSENT?
-   (High accuracy = model doesn't hallucinate based on class priors)
-
-A model that truly learns visual concepts should score high on both metrics.
-A model that memorizes class-attribute correlations will score low on both.
-
 Config Options:
     use_majority_voting: bool (default: False)
         If True, applies majority voting to denoise the ground-truth attributes.
@@ -33,7 +19,6 @@ import pickle
 import sys
 from collections import defaultdict
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
@@ -99,7 +84,32 @@ def create_sub_to_cbm_mapping():
     return sub_attr_to_cbm_idx, cbm_attr_names
 
 
-def normalize_bird_name(name):
+def get_overlapping_cbm_indices(sub_attr_to_cbm_idx, dataset_attr_names):
+    """
+    Identify the CBM attribute indices that overlap between SUB and CUB.
+
+    These are the 17 SUB attributes that also exist in the 112 CBM-selected attributes.
+    sub_attr_to_cbm_idx maps ALL 112 CBM names (in SUB format) to CBM indices,
+    so we intersect with the actual SUB dataset attribute names to find the true overlap.
+
+    Args:
+        sub_attr_to_cbm_idx: Dict mapping CBM attr name (in SUB format) -> CBM index
+        dataset_attr_names: List of actual SUB dataset attribute names
+
+    Returns:
+        overlapping_cbm_indices: Sorted list of CBM indices (0-111) that overlap
+    """
+    sub_names = set(dataset_attr_names)
+    overlapping_cbm_indices = set()
+
+    for sub_name, cbm_idx in sub_attr_to_cbm_idx.items():
+        if sub_name in sub_names:
+            overlapping_cbm_indices.add(cbm_idx)
+
+    return sorted(overlapping_cbm_indices)
+
+
+def normalize_sub_bird_name(name):
     """
     Normalize bird name for matching between SUB and CUB datasets.
     SUB uses names like "White_breasted_Nuthatch" or "White breasted Nuthatch"
@@ -158,7 +168,7 @@ def build_bird_class_attribute_cache(val_pkl_path, img_dir, use_majority_voting=
         for class_idx, counts in class_attr_counts.items():
             if class_idx in class_idx_to_bird_name:
                 bird_name = class_idx_to_bird_name[class_idx]
-                normalized_name = normalize_bird_name(bird_name)
+                normalized_name = normalize_sub_bird_name(bird_name)
 
                 total = counts["total"]
                 majority_attrs = [
@@ -173,7 +183,7 @@ def build_bird_class_attribute_cache(val_pkl_path, img_dir, use_majority_voting=
             class_idx = d["class_label"]
             if class_idx in class_idx_to_bird_name:
                 bird_name = class_idx_to_bird_name[class_idx]
-                normalized_name = normalize_bird_name(bird_name)
+                normalized_name = normalize_sub_bird_name(bird_name)
                 if normalized_name not in bird_to_attrs:
                     bird_to_attrs[normalized_name] = d["attribute_label"]
 
@@ -238,7 +248,7 @@ def find_original_attribute_indices(
         return []
 
     # Get the base attributes for this bird from cache (using normalized name)
-    normalized_name = normalize_bird_name(bird_name)
+    normalized_name = normalize_sub_bird_name(bird_name)
     base_attrs = bird_to_attrs.get(normalized_name)
     if base_attrs is None:
         return []
@@ -529,213 +539,7 @@ def eval_sub_attributes(args):
         "unmatched_attrs": unmatched_attrs,
         "use_majority_voting": use_majority_voting,
         "feature_diff_stats": feature_diff_stats,
-        # Components for visualization
-        "model": model,
-        "dataset": dataset,
-        "device": device,
-        "bird_to_attrs": bird_to_attrs,
-        "sub_attr_to_cbm_idx": sub_attr_to_cbm_idx,
     }
-
-
-def visualize_predictions_grid(
-    model,
-    dataset,
-    device,
-    cbm_attr_names,
-    bird_to_attrs,
-    sub_attr_to_cbm_idx,
-    output_dir,
-    n_images_per_grid=10,
-    n_grids=10,
-    n_cols=5,
-    seed=42,
-):
-    """
-    Create multiple grid visualizations showing model predictions for old vs new attributes.
-
-    Args:
-        model: The trained model
-        dataset: SUBDataset instance
-        device: torch device
-        cbm_attr_names: List of CBM attribute names
-        bird_to_attrs: Dict mapping bird name -> original attributes
-        sub_attr_to_cbm_idx: Dict mapping SUB attr name -> CBM index
-        output_dir: Directory to save the visualizations
-        n_images_per_grid: Number of images per grid
-        n_grids: Number of grids to generate
-        n_cols: Number of columns in each grid
-        seed: Random seed for reproducibility
-    """
-    import random
-
-    model.eval()
-
-    # Collect ALL valid samples first
-    print("Collecting valid samples for visualization...")
-    all_valid_samples = []
-    for idx in range(len(dataset)):
-        sample = dataset.dataset[idx]
-        sub_attr_idx = sample["attr_label"]
-        sub_attr_name = dataset.attr_names[sub_attr_idx]
-        bird_label = sample["bird_label"]
-        bird_name = dataset.bird_names[bird_label]
-
-        # Check if we can map this attribute
-        new_cbm_idx = sub_attr_to_cbm_idx.get(sub_attr_name)
-        if new_cbm_idx is None:
-            continue
-
-        # Find original attributes
-        original_cbm_indices = find_original_attribute_indices(
-            bird_name, sub_attr_name, cbm_attr_names, bird_to_attrs
-        )
-        if not original_cbm_indices:
-            continue
-
-        all_valid_samples.append(
-            {
-                "idx": idx,
-                "image": sample["image"],
-                "bird_name": bird_name,
-                "new_attr_name": sub_attr_name.replace("--", "::"),
-                "new_cbm_idx": new_cbm_idx,
-                "original_cbm_indices": original_cbm_indices,
-                "original_attr_names": [
-                    cbm_attr_names[i] for i in original_cbm_indices
-                ],
-            }
-        )
-
-    if not all_valid_samples:
-        print("No valid samples found for visualization")
-        return
-
-    print(f"Found {len(all_valid_samples)} valid samples")
-
-    # Shuffle with seed for reproducibility
-    random.seed(seed)
-    random.shuffle(all_valid_samples)
-
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Generate multiple grids
-    total_needed = n_images_per_grid * n_grids
-    if len(all_valid_samples) < total_needed:
-        print(f"Warning: Only {len(all_valid_samples)} samples available, "
-              f"but {total_needed} requested. Some grids may have fewer images.")
-
-    for grid_idx in range(n_grids):
-        start_idx = grid_idx * n_images_per_grid
-        end_idx = min(start_idx + n_images_per_grid, len(all_valid_samples))
-
-        if start_idx >= len(all_valid_samples):
-            print(f"No more samples for grid {grid_idx + 1}, stopping.")
-            break
-
-        samples = all_valid_samples[start_idx:end_idx]
-        n_images = len(samples)
-        n_rows = (n_images + n_cols - 1) // n_cols
-
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 5 * n_rows))
-        if n_rows == 1:
-            axes = [axes] if n_cols == 1 else list(axes)
-        else:
-            axes = axes.flatten()
-
-        # Hide unused subplots
-        for ax in axes[n_images:]:
-            ax.axis("off")
-
-        with torch.no_grad():
-            for i, sample in enumerate(samples):
-                ax = axes[i]
-
-                # Get image and transform
-                img = sample["image"]
-                if not isinstance(img, np.ndarray):
-                    img_display = np.array(img)
-                else:
-                    img_display = img
-
-                # Get model prediction with features
-                img_tensor, _, attr_label_idx = dataset[sample["idx"]]
-                img_tensor = img_tensor.unsqueeze(0).to(device)
-                # Create dummy attribute labels tensor (not actually used by the model for prediction)
-                attr_labels_vis = torch.zeros(1, 112).to(device)
-                attr_preds, attr_probs, attr_features = get_attribute_predictions(
-                    model, (img_tensor, attr_labels_vis), device, return_features=True
-                )
-                attr_probs = attr_probs.cpu().squeeze(0)
-                attr_features = attr_features.cpu().squeeze(0)
-
-                # Get predictions for new and original attributes
-                new_cbm_idx = sample["new_cbm_idx"]
-                new_prob = attr_probs[new_cbm_idx].item()
-                new_pred = "Present" if new_prob >= 0.5 else "Absent"
-                new_feature_raw = attr_features[new_cbm_idx].item()
-                new_feature = 1 / (1 + np.exp(-new_feature_raw))  # Apply sigmoid
-
-                # For original, show the first one (typically there's only one)
-                orig_cbm_idx = sample["original_cbm_indices"][0]
-                orig_prob = attr_probs[orig_cbm_idx].item()
-                orig_pred = "Present" if orig_prob >= 0.5 else "Absent"
-                orig_feature_raw = attr_features[orig_cbm_idx].item()
-                orig_feature = 1 / (1 + np.exp(-orig_feature_raw))  # Apply sigmoid
-
-                # Compute feature difference (between sigmoid activations)
-                feature_diff = abs(new_feature - orig_feature)
-
-                # Extract attribute type and values (e.g., "breast_color" and "red" from "has_breast_color::red")
-                attr_parts = sample["new_attr_name"].split("::")
-                attr_type = attr_parts[0].replace("has_", "").replace("_", " ")
-                new_attr_short = attr_parts[-1]
-                orig_attr_short = sample["original_attr_names"][0].split("::")[-1]
-
-                # Display image
-                ax.imshow(img_display)
-                ax.axis("off")
-
-                # Title: bird class + attribute type + value change
-                bird_name_display = sample["bird_name"].replace("_", " ")
-                ax.set_title(
-                    f"{bird_name_display}\n{attr_type}: {orig_attr_short} → {new_attr_short}",
-                    fontsize=10,
-                    fontweight="bold",
-                )
-
-                # Legend showing predictions and feature difference
-                legend_text = (
-                    f"Old ({orig_attr_short}): {orig_pred} ({orig_prob:.2f})\n"
-                    f"New ({new_attr_short}): {new_pred} ({new_prob:.2f})\n"
-                    f"Feature Δ: {feature_diff:.2f}"
-                )
-
-                # Color code: green if model adapts (new=present, old=absent), red if memorizes
-                if new_prob >= 0.5 and orig_prob < 0.5:
-                    box_color = "lightgreen"  # Adapts
-                elif new_prob < 0.5 and orig_prob >= 0.5:
-                    box_color = "lightcoral"  # Memorizes
-                else:
-                    box_color = "lightyellow"  # Mixed
-
-                ax.text(
-                    0.5,
-                    -0.05,
-                    legend_text,
-                    transform=ax.transAxes,
-                    fontsize=8,
-                    verticalalignment="top",
-                    horizontalalignment="center",
-                    bbox=dict(boxstyle="round", facecolor=box_color, alpha=0.8),
-                )
-
-        plt.tight_layout(h_pad=3.0)
-        output_path = os.path.join(output_dir, f"predictions_grid_{grid_idx + 1:02d}.png")
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
-        plt.close()
-        print(f"Saved grid {grid_idx + 1}/{n_grids}: {output_path}")
 
 
 def print_results(results):
@@ -916,22 +720,6 @@ if __name__ == "__main__":
     print("=" * 70 + "\n")
 
     results = eval_sub_attributes(args)
-
-    # Generate visualization grids
-    n_vis_images = getattr(args, "n_vis_images", 10)
-    n_vis_grids = getattr(args, "n_vis_grids", 10)
-    vis_dir = os.path.join(out_folder_path, "prediction_grids")
-    visualize_predictions_grid(
-        model=results["model"],
-        dataset=results["dataset"],
-        device=results["device"],
-        cbm_attr_names=results["cbm_attr_names"],
-        bird_to_attrs=results["bird_to_attrs"],
-        sub_attr_to_cbm_idx=results["sub_attr_to_cbm_idx"],
-        output_dir=vis_dir,
-        n_images_per_grid=n_vis_images,
-        n_grids=n_vis_grids,
-    )
 
     sys.stdout = open(path_to_output_txt, 'a')
 

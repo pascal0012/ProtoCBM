@@ -10,7 +10,7 @@ IoU_threshold: 0.5
 val_metric:   # Options: [class_acc, concept_acc, seg_iou, dist_loc], multiple can be combined.
   - concept_acc
 
-log_dir: outputs/ProtoCBM
+log_dir: outputs/ProtoCBM-ORACLE
 image_dir: data/CUB_200_2011
 data_dir: data/CUB_processed/class_attr_data_10
 dataset: cub
@@ -36,5 +36,6 @@ loss_weight_attribute_reg: 0.8886
 loss_weight_map_compactness: 0.01
 loss_weight_attribute_decorrelation: 0.008823125255077393
 loss_decorrelation_per_group: true
-dist_loss: true
+
+distance_loss: true
 distance_loss_weight: 0.1

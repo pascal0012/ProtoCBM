@@ -10,12 +10,6 @@ IoU_threshold: 0.5
 plot_curve: false
 use_argmax: False
 
-# Performance: Skip torch.compile() for faster model loading
-skip_compile: true
-
-# Dataset selection
-dataset: sub
-
 # Updated paths
 log_dir: outputs/CBM-new/nZrKg2BmGixeaiDYHlGM8
 data_dir: data/CUB_200_2011

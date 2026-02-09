@@ -19,7 +19,8 @@ wandb
 
 # gitignore for slurm and claude notes
 *.slurm
-Claude.md
+CLAUDE.md
+docs/
 *.ipynb
 
 # add code for running the original code
