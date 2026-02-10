@@ -3,6 +3,11 @@ base_config: configs/protocbm/joint.yaml
 num_trials: 50
 
 optimize:
+  # Also tune attribute regression weight to control it compared to classification loss.
+  loss_weight_attribute_reg:
+    distribution: loguniform
+    low: 1e-5
+    high: 1e2
   loss_weight_attribute_decorrelation:
     distribution: loguniform
     low: 1e-5
