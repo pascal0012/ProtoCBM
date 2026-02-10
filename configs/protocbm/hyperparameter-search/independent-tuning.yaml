@@ -1,5 +1,5 @@
 experiment_name: protocbm_independent_tuning
-base_config: configs/protocbm/independent.yaml
+base_config: configs/protocbm/modes/independent.yaml
 num_trials: 50
 
 optimize:

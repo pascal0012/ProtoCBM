@@ -433,14 +433,23 @@ def gather_args():
     with open(cli_args.config) as f:
         args = yaml.safe_load(f)
 
-    # Load base config if provided (e.g. for hyperparameter tuning)
+    # Recursively load base config if provided
     base_config = args.get("base_config", None)
-    if base_config is not None:
-        print(f"Loading base config from '{base_config}'.")
-        with open(base_config) as f:
-            base_args = yaml.safe_load(f)
-        
-        args = base_args | args
+    i = 0
+    while base_config is not None:
+        if base_config is not None:
+            print(f"Loading base config from '{base_config}'.")
+            with open(base_config) as f:
+                base_args = yaml.safe_load(f)
+
+            base_config = base_args.get("base_config", None)
+
+            args = base_args | args
+
+        if i > 10:
+            raise ValueError(
+                "Too many levels of base config. Possible circular reference."
+            )
 
     args = normalize_scientific_floats(args)
 
