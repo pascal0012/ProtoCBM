@@ -1,6 +1,9 @@
 experiment_name: protocbm_joint_tuning
 base_config: configs/protocbm/modes/joint.yaml
 num_trials: 50
+val_metric:
+  - concept_acc
+  - class_acc
 
 optimize:
   # Also tune attribute regression weight to control it compared to classification loss.

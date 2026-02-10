@@ -1,6 +1,9 @@
 experiment_name: protocbm_independent_tuning
 base_config: configs/protocbm/modes/independent.yaml
 num_trials: 50
+val_metric:
+  - concept_acc
+  - class_acc
 
 optimize:
   loss_weight_attribute_decorrelation:
