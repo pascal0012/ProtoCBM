@@ -4,8 +4,7 @@ from train_protocbm import train
 from utils_protocbm.train_utils import gather_args, model_by_mode
 
 def main(args: Namespace):
-    run_name = args.get("experiment_name", None)
-    assert run_name is not None, "experiment_name must be provided in args!"
+    run_name = args.experiment_name
 
     for config in args.experiments:
         print(f"Running config: {config['name']}")
@@ -27,11 +26,5 @@ def main(args: Namespace):
 
 if __name__ == "__main__":
     args = gather_args()
-
-    # Load base config if provided
-    base_config = args.get("base_config", None)
-    if base_config is not None:
-        print(f"Loading base config from {base_config}")
-        args.update(gather_args(config_file=base_config))
 
     main(args)

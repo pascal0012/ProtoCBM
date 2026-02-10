@@ -11,10 +11,10 @@ from torch import nn
 from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
 from localization.localization_accuracy import (
-    compute_localization_distance,
     calculate_average_partwise_localization_distance,
+    compute_localization_distance,
 )
-from losses import ProtoModLoss, LocalizationDistanceLoss
+from losses import LocalizationDistanceLoss, ProtoModLoss
 from utils_protocbm.eval_utils import (
     LocalizationMeter,
     eval_part_segmentation_iou,
@@ -33,6 +33,7 @@ from utils_protocbm.train_utils import (
     prepare_model,
 )
 
+torch.set_float32_matmul_precision("high")
 
 # TODO
 loss_labels = [
@@ -342,7 +343,7 @@ def train(model: nn.Module, args: Namespace) -> float:
             f"Val/Metric: {val_metric.item():.4f}",
             f"Best val epoch: {best_val_epoch}",
             f"Time: {time.time() - start_time:.2f} sec",
-            f"LR: {scheduler.get_lr()[0]:.6f}",
+            f"LR: {scheduler.get_last_lr()[0]:.6f}",
         ]
         logger.write(" - ".join(logger_lst))
         logger.flush()

@@ -13,7 +13,9 @@ from torch.utils.tensorboard import SummaryWriter
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 # Add ConceptBottleneck to path for loading legacy checkpoints that use CUB.template_model
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "ConceptBottleneck"))
+sys.path.append(
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "ConceptBottleneck")
+)
 
 from losses import ProtoModLoss
 from models.concept_mapper import ProtoMod
@@ -98,13 +100,18 @@ def prepare_model(
 def logger_and_summarywriter(args: Namespace):
     os.makedirs(os.path.join(args.log_dir, args.model_name), exist_ok=True)
 
-    write_console = args.write_console if hasattr(args, "write_console") else True
-    logger = Logger(os.path.join(args.log_dir, args.model_name, "log.txt"), write_console=write_console)
+    write_console = getattr(args, "write_console", True)
+    logger = Logger(
+        os.path.join(args.log_dir, args.model_name, "log.txt"),
+        write_console=write_console,
+    )
     for k, v in vars(args).items():
         logger.write(f"{k}: {v}")
     logger.flush()
 
-    tb_writer = SummaryWriter(log_dir=os.path.join(args.log_dir, args.model_name, "tensorboard"))
+    tb_writer = SummaryWriter(
+        log_dir=os.path.join(args.log_dir, args.model_name, "tensorboard")
+    )
 
     return logger, tb_writer
 
@@ -425,6 +432,16 @@ def gather_args():
     # Load the config yaml
     with open(cli_args.config) as f:
         args = yaml.safe_load(f)
+
+    # Load base config if provided (e.g. for hyperparameter tuning)
+    base_config = args.get("base_config", None)
+    if base_config is not None:
+        print(f"Loading base config from '{base_config}'.")
+        with open(base_config) as f:
+            base_args = yaml.safe_load(f)
+        
+        args = base_args | args
+
     args = normalize_scientific_floats(args)
 
     # If val_metric is only one entry
@@ -433,7 +450,6 @@ def gather_args():
         if isinstance(val_metrics, str):
             args["val_metric"] = [val_metrics]
 
-    # Add run name, keep as namespace to be able to access like args.param
     args = Namespace(**args, config_path=cli_args.config)
 
     # Override checkpoint from CLI if provided
