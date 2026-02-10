@@ -108,7 +108,7 @@ def epoch_wrapper(
             )
 
             # For X->C we do not train a classifier
-            if model.classifier is None:
+            if args.mode == "XC":
                 classification_loss = torch.tensor(-1.0, device=device)
             else:
                 classification_loss = cross_entropy(
@@ -117,7 +117,7 @@ def epoch_wrapper(
         else:
             (outputs, similarity_scores, attention_maps) = model(inputs, attr_labels)
 
-            if model.classifier is None:
+            if args.mode == "XC":
                 classification_loss = torch.tensor(-1.0, device=device)
             else:
                 classification_loss = cross_entropy(outputs, labels)
@@ -236,10 +236,10 @@ def epoch_wrapper(
     )
 
 
-def train(model: nn.Module, args: Namespace) -> float:
+def train(model: nn.Module, args: Namespace, close_console: bool = True) -> float:
     model, device = prepare_model(model, args)
 
-    logger, tb_writer = logger_and_summarywriter(args)
+    logger, tb_writer = logger_and_summarywriter(args, close_console=close_console)
 
     optimizer, scheduler = optimizer_and_scheduler_by_name(model, args)
 
@@ -365,4 +365,13 @@ if __name__ == "__main__":
 
     model = model_by_mode(args)
 
-    train(model, args)
+    # For sequential training, first train the model with X->C, then C->Y
+    if args.mode == "XC->CY":
+        print("--- Training sequentially with modes 'XC' then 'CY' ---")
+        args.mode = "XC"
+        print("Training with mode 'XC' (predicting concepts from images)...")
+        train(model, args, close_console=False)
+
+        args.mode = "CY"
+        print("Training with mode 'CY' (predicting classes from concepts)...")
+        train(model, args)

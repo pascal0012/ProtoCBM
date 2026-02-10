@@ -97,13 +97,14 @@ def prepare_model(
     return model, device
 
 
-def logger_and_summarywriter(args: Namespace):
+def logger_and_summarywriter(args: Namespace, close_console=True):
     os.makedirs(os.path.join(args.log_dir, args.model_name), exist_ok=True)
 
     write_console = getattr(args, "write_console", True)
     logger = Logger(
         os.path.join(args.log_dir, args.model_name, "log.txt"),
         write_console=write_console,
+        close_console=close_console,
     )
     for k, v in vars(args).items():
         logger.write(f"{k}: {v}")
@@ -152,7 +153,7 @@ def optimizer_and_scheduler_by_name(model: nn.Module, args: Namespace):
 
 
 def model_by_mode(args: Namespace) -> nn.Module:
-    if args.mode == "XCY" or args.mode == "XCCY":
+    if args.mode == "XCY" or args.mode == "XCCY" or args.mode == "XC->CY":
         model = ModelXtoCtoY(args)
     elif args.mode == "XY":
         model = ModelXtoY(args)
@@ -233,8 +234,10 @@ class Logger(object):
     Log results to a file and flush() to view instant updates
     """
 
-    def __init__(self, fpath=None, write_console=True):
+    def __init__(self, fpath=None, write_console=True, close_console=True):
         self.write_console = write_console
+        self.close_console = close_console
+
         if self.write_console:
             self.console = sys.stdout
         self.file = None
@@ -264,7 +267,7 @@ class Logger(object):
             os.fsync(self.file.fileno())
 
     def close(self):
-        if self.write_console:
+        if self.write_console and self.close_console:
             self.console.close()
         if self.file is not None:
             self.file.close()
