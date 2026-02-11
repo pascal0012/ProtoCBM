@@ -1,0 +1,14 @@
+base_config: configs/protocbm/protocbm.yaml
+mode: XCY   # XY and XC and CY
+
+log_dir: outputs/ProtoCBM-ORACLE
+
+lr: 0.01
+
+# ProtoCBM specifics
+loss_weight_attribute_reg: 0.8886
+loss_weight_map_compactness: 0.01
+loss_weight_attribute_decorrelation: 0.008823125255077393
+
+distance_loss: true
+distance_loss_weight: 0.1

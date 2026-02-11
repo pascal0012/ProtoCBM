@@ -1,0 +1,10 @@
+base_config: configs/protocbm/protocbm.yaml
+mode: XCCY
+log_dir: outputs/protocbm/independent
+
+# --- TO BE UPDATED ---
+lr: 0.01
+
+loss_weight_attribute_reg: 0.8886
+loss_weight_map_compactness: 0.01
+loss_weight_attribute_decorrelation: 0.008823125255077393

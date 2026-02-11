@@ -1,0 +1,24 @@
+experiment_name: protocbm_joint_tuning
+base_config: configs/protocbm/modes/joint.yaml
+num_trials: 50
+val_metric:
+  - concept_acc
+  - class_acc
+
+optimize:
+  # Also tune attribute regression weight to control it compared to classification loss.
+  loss_weight_attribute_reg:
+    distribution: loguniform
+    low: 1e-5
+    high: 1e2
+  loss_weight_attribute_decorrelation:
+    distribution: loguniform
+    low: 1e-5
+    high: 1e2
+  loss_weight_map_compactness:
+    distribution: loguniform
+    low: 1e-5
+    high: 1e2
+  lr:
+    distribution: categorical
+    values: [0.01, 0.005, 0.001, 0.0005, 0.0001]

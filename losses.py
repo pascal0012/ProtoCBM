@@ -107,18 +107,18 @@ class ProtoModLoss(nn.Module):
             decorrelation_loss = self.reg_weights["decorrelation"] * prototypes.norm(2)
             loss += decorrelation_loss
 
+        # DEACTIVATED: Drastically increased localization distance
         # Experimental loss to enforce low variance across activated attention maps per group
-        consistency_loss = self.compute_consistency_loss(
-            attention_maps, similarity_scores
-        )
-        loss += consistency_loss
+        # consistency_loss = self.compute_consistency_loss(
+        #     attention_maps, similarity_scores
+        # )
+        # loss += consistency_loss
 
         return (
             loss,
             attribute_reg_loss,
             cpt_loss,
             decorrelation_loss,
-            consistency_loss,
         )
 
     def compute_consistency_loss(self, attention_maps, similarity_scores):

@@ -13,7 +13,9 @@ from torch.utils.tensorboard import SummaryWriter
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 # Add ConceptBottleneck to path for loading legacy checkpoints that use CUB.template_model
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "ConceptBottleneck"))
+sys.path.append(
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "ConceptBottleneck")
+)
 
 from losses import ProtoModLoss
 from models.concept_mapper import ProtoMod
@@ -95,16 +97,22 @@ def prepare_model(
     return model, device
 
 
-def logger_and_summarywriter(args: Namespace):
+def logger_and_summarywriter(args: Namespace, close_console=True):
     os.makedirs(os.path.join(args.log_dir, args.model_name), exist_ok=True)
 
-    write_console = args.write_console if hasattr(args, "write_console") else True
-    logger = Logger(os.path.join(args.log_dir, args.model_name, "log.txt"), write_console=write_console)
+    write_console = getattr(args, "write_console", True)
+    logger = Logger(
+        os.path.join(args.log_dir, args.model_name, "log.txt"),
+        write_console=write_console,
+        close_console=close_console,
+    )
     for k, v in vars(args).items():
         logger.write(f"{k}: {v}")
     logger.flush()
 
-    tb_writer = SummaryWriter(log_dir=os.path.join(args.log_dir, args.model_name, "tensorboard"))
+    tb_writer = SummaryWriter(
+        log_dir=os.path.join(args.log_dir, args.model_name, "tensorboard")
+    )
 
     return logger, tb_writer
 
@@ -145,7 +153,7 @@ def optimizer_and_scheduler_by_name(model: nn.Module, args: Namespace):
 
 
 def model_by_mode(args: Namespace) -> nn.Module:
-    if args.mode == "XCY" or args.mode == "XCCY":
+    if args.mode == "XCY" or args.mode == "XCCY" or args.mode == "XC->CY":
         model = ModelXtoCtoY(args)
     elif args.mode == "XY":
         model = ModelXtoY(args)
@@ -226,8 +234,10 @@ class Logger(object):
     Log results to a file and flush() to view instant updates
     """
 
-    def __init__(self, fpath=None, write_console=True):
+    def __init__(self, fpath=None, write_console=True, close_console=True):
         self.write_console = write_console
+        self.close_console = close_console
+
         if self.write_console:
             self.console = sys.stdout
         self.file = None
@@ -257,7 +267,7 @@ class Logger(object):
             os.fsync(self.file.fileno())
 
     def close(self):
-        if self.write_console:
+        if self.write_console and self.close_console:
             self.console.close()
         if self.file is not None:
             self.file.close()
@@ -425,6 +435,25 @@ def gather_args():
     # Load the config yaml
     with open(cli_args.config) as f:
         args = yaml.safe_load(f)
+
+    # Recursively load base config if provided
+    base_config = args.get("base_config", None)
+    i = 0
+    while base_config is not None:
+        if base_config is not None:
+            print(f"Loading base config from '{base_config}'.")
+            with open(base_config) as f:
+                base_args = yaml.safe_load(f)
+
+            base_config = base_args.get("base_config", None)
+
+            args = base_args | args
+
+        if i > 10:
+            raise ValueError(
+                "Too many levels of base config. Possible circular reference."
+            )
+
     args = normalize_scientific_floats(args)
 
     # If val_metric is only one entry
@@ -433,7 +462,6 @@ def gather_args():
         if isinstance(val_metrics, str):
             args["val_metric"] = [val_metrics]
 
-    # Add run name, keep as namespace to be able to access like args.param
     args = Namespace(**args, config_path=cli_args.config)
 
     # Override checkpoint from CLI if provided

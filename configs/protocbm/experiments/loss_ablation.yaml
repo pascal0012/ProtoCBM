@@ -1,0 +1,12 @@
+experiment_name: loss_ablation
+base_config: configs/protocbm_independent.yaml
+
+experiments:
+  - name: XCCY-1
+    loss_weight_map_compactness: 0
+    loss_weight_attribute_decorrelation: 0
+  - name: XCCY-2a
+    loss_weight_attribute_decorrelation: 0
+  - name: XCCY-2b
+    loss_weight_map_compactness: 0
+  - name: XCCY-3
