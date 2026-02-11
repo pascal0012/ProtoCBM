@@ -52,7 +52,7 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=
 
         elif args.model_name == "cbm":
             from saliency.wrapper import WrapperCUB
-            out = model(inputs)
+            out = model(inputs, attr_labels)
             class_pred, attributes = out[0], out[1:]
             attributes = torch.stack(attributes, dim=1).detach().squeeze(-1)
 
@@ -60,7 +60,7 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=
             attribute_maps = torch.ones((inputs.shape[0], args.n_attributes, 8, 8))
             for target in range(args.n_attributes):
                 wrapped_model = WrapperCUB(model, out_index=target)
-                current_cam = calculate_cam(wrapped_model, inputs, target=0)
+                current_cam = calculate_cam(wrapped_model, inputs, attr_labels, target=0)
                 attribute_maps[:, target] = current_cam[:, 0, :, :]
 
             return class_pred, attributes, attribute_maps
@@ -86,6 +86,7 @@ def get_protomod_attention(attention_maps):
 def calculate_cam(
     wrapped_model: nn.Module,
     input_im: torch.Tensor,
+    attr_labels: torch.Tensor,
     target: list[int],
     source_conv=None,
 ) -> torch.Tensor:
@@ -97,6 +98,6 @@ def calculate_cam(
         last_conv = find_fist_conv(wrapped_model)
 
     layer_gc = LayerGradCam(wrapped_model, last_conv)
-    attr = layer_gc.attribute(input_im, target)
+    attr = layer_gc.attribute((input_im, attr_labels), target)
 
     return attr

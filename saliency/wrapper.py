@@ -12,8 +12,8 @@ class WrapperCUB(nn.Module):
         self.model = model
         self.out_index = out_index
 
-    def forward(self, x):
-        out = self.model(x)
+    def forward(self, input_im, attr_labels):
+        out = self.model(input_im, attr_labels)
         _class_pred, attributes = out[0], out[1:]
 
         # If model returns a list, select one element or concatenate them

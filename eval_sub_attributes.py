@@ -412,6 +412,7 @@ def eval_sub_attributes(args):
     # Track feature differences between old and new attributes
     feature_diff_stats = {
         'l1_distances': [],  # L1 distance between old and new feature activations (all cases)
+        'probs_distances': [],  # distances between probabilities
         # Breakdown by prediction scenarios
         'adapts': [],  # new=present, old=absent (model adapts)
         'memorizes': [],  # new=absent, old=present (model memorizes)
@@ -499,15 +500,20 @@ def eval_sub_attributes(args):
                 new_feature_raw = attr_features[i, new_cbm_idx]
                 new_feature = torch.sigmoid(new_feature_raw)
                 new_pred_present = attr_preds[i, new_cbm_idx] == 1
+                new_feature_probs = attr_probs[i, new_cbm_idx]
 
                 for original_cbm_idx in original_cbm_indices:
                     old_feature_raw = attr_features[i, original_cbm_idx]
                     old_feature = torch.sigmoid(old_feature_raw)
                     old_pred_present = attr_preds[i, original_cbm_idx] == 1
+                    old_feature_probs = attr_probs[i, original_cbm_idx]
 
                     # L1 distance (for all cases) - now between sigmoid activations
                     l1_dist = torch.abs(new_feature - old_feature).item()
                     feature_diff_stats['l1_distances'].append(l1_dist)
+
+                    # Distance between probs
+                    feature_diff_stats['probs_distances'].append(new_feature_probs - old_feature_probs)
 
                     # Categorize by prediction scenario
                     if new_pred_present and not old_pred_present:
@@ -601,6 +607,26 @@ def print_results(results):
     original_present_rate = 100 * original_present / total if total > 0 else 0
     print("\n2. Original Attribute Hallucination (predicts removed attr as PRESENT):")
     print(f"   Rate: {original_present_rate:.2f}% ({original_present}/{total})")
+
+    # Main metrics based on higher scores: If the attribute score of the new metric is higher than that of the old, we classify it
+    # as new predicted correctly, otherwise, we classify it as original detected.
+    if feature_diff_stats and len(feature_diff_stats.get('probs_distances', [])) > 0:
+        tmp_total = len(feature_diff_stats['probs_distances'])
+        diff_based_new_predicted = 0
+        diff_based_original_present = 0
+        for diff in feature_diff_stats['probs_distances']:
+            if diff > 0:
+                diff_based_new_predicted += 1
+            else:
+                diff_based_original_present += 1
+
+        diff_based_new_acc = 100 * diff_based_new_predicted / tmp_total if tmp_total > 0 else 0
+        print("\n1. Difference-based New Attribute Detection (should predict substituted attr as PRESENT):")
+        print(f"   Accuracy: {diff_based_new_acc:.2f}% ({diff_based_new_predicted}/{tmp_total})")
+
+        diff_based_original_predicted = 100 * diff_based_original_present / tmp_total if tmp_total > 0 else 0
+        print("\n2. Difference-based Original Attribute Hallucination (predicts removed attr as PRESENT):")
+        print(f"   Rate: {diff_based_original_predicted:.2f}% ({diff_based_original_present}/{tmp_total})")
 
     # Adaptation vs Memorization analysis
     print("\n" + "-" * 70)
