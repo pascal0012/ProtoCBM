@@ -19,6 +19,7 @@ import pickle
 import sys
 from collections import defaultdict
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
@@ -420,6 +421,11 @@ def eval_sub_attributes(args):
         'both_absent': [],  # new=absent, old=absent
     }
 
+    # Per-sample activation scores for old vs new attributes
+    sample_new_scores = []   # sigmoid activation for new attribute per sample
+    sample_old_scores = []   # sigmoid activation for old attribute per sample (avg if multiple)
+    old_higher_list = []     # 1 if old activation > new activation, 0 otherwise
+
     # Track unmatched items for debugging
     unmatched_birds = set()
     unmatched_attrs = set()
@@ -529,6 +535,17 @@ def eval_sub_attributes(args):
                         # Both predicted as absent
                         feature_diff_stats['both_absent'].append(l1_dist)
 
+                # Store per-sample scores: new vs old (average over original indices)
+                new_score = new_feature.item()
+                old_scores = [
+                    torch.sigmoid(attr_features[i, idx]).item()
+                    for idx in original_cbm_indices
+                ]
+                old_score = np.mean(old_scores)
+                sample_new_scores.append(new_score)
+                sample_old_scores.append(old_score)
+                old_higher_list.append(1 if old_score > new_score else 0)
+
 
     return {
         "total_samples": total_samples,
@@ -545,7 +562,78 @@ def eval_sub_attributes(args):
         "unmatched_attrs": unmatched_attrs,
         "use_majority_voting": use_majority_voting,
         "feature_diff_stats": feature_diff_stats,
+        "sample_new_scores": sample_new_scores,
+        "sample_old_scores": sample_old_scores,
+        "old_higher_list": old_higher_list,
     }
+
+
+def plot_old_vs_new_scores(results, out_dir):
+    """
+    Plot old vs new attribute activation scores and save the figure.
+
+    Creates a scatter plot where each point is a sample:
+      x-axis = new (substituted) attribute sigmoid activation
+      y-axis = old (original) attribute sigmoid activation
+    Points are colored by whether old > new (orange) or not (blue).
+    A diagonal line marks where old == new.
+
+    Also saves the old_higher_list to a text file.
+
+    Args:
+        results: Dict returned by eval_sub_attributes
+        out_dir: Directory to save the plot and list
+    """
+    new_scores = np.array(results["sample_new_scores"])
+    old_scores = np.array(results["sample_old_scores"])
+    old_higher = np.array(results["old_higher_list"])
+
+    if len(new_scores) == 0:
+        print("No samples to plot.")
+        return
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    # --- Scatter plot ---
+    fig, ax = plt.subplots(figsize=(8, 8))
+
+    mask_old = old_higher == 1
+    mask_new = ~mask_old
+
+    ax.scatter(
+        new_scores[mask_new], old_scores[mask_new],
+        c="tab:blue", alpha=0.4, s=12, label=f"New >= Old ({mask_new.sum()})",
+    )
+    ax.scatter(
+        new_scores[mask_old], old_scores[mask_old],
+        c="tab:orange", alpha=0.4, s=12, label=f"Old > New ({mask_old.sum()})",
+    )
+
+    # Diagonal reference
+    ax.plot([0, 1], [0, 1], ls="--", c="grey", lw=1)
+
+    ax.set_xlabel("New attribute activation (sigmoid)")
+    ax.set_ylabel("Old attribute activation (sigmoid)")
+    ax.set_title("Old vs New Attribute Activations per Sample")
+    ax.set_xlim(-0.02, 1.02)
+    ax.set_ylim(-0.02, 1.02)
+    ax.set_aspect("equal")
+    ax.legend(loc="upper left")
+
+    plot_path = os.path.join(out_dir, "old_vs_new_activations.png")
+    fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved activation scatter plot to: {plot_path}")
+
+    # --- Save old_higher_list ---
+    list_path = os.path.join(out_dir, "old_higher_list.txt")
+    with open(list_path, "w") as f:
+        f.write(" ".join(str(v) for v in old_higher.tolist()) + "\n")
+    print(f"Saved old_higher_list ({old_higher.sum()}/{len(old_higher)} old>new) to: {list_path}")
+
+    # --- Print summary ---
+    pct_old = 100 * old_higher.sum() / len(old_higher) if len(old_higher) > 0 else 0
+    print(f"Old higher than new: {old_higher.sum()}/{len(old_higher)} ({pct_old:.1f}%)")
 
 
 def print_results(results):
@@ -607,6 +695,15 @@ def print_results(results):
     original_present_rate = 100 * original_present / total if total > 0 else 0
     print("\n2. Original Attribute Hallucination (predicts removed attr as PRESENT):")
     print(f"   Rate: {original_present_rate:.2f}% ({original_present}/{total})")
+
+    # Ratio of new detection vs old hallucination
+    print("\n3. New Detection / Old Hallucination Ratio:")
+    if original_present > 0:
+        ratio = new_correct / original_present
+        print(f"   Ratio: {ratio:.2f} ({new_correct} new detected / {original_present} old hallucinated)")
+    else:
+        print(f"   Ratio: inf ({new_correct} new detected / 0 old hallucinated)")
+    print("   Interpretation: >1 means model detects new attrs more than it hallucinates old ones")
 
     # Main metrics based on higher scores: If the attribute score of the new metric is higher than that of the old, we classify it
     # as new predicted correctly, otherwise, we classify it as original detected.
@@ -747,6 +844,9 @@ if __name__ == "__main__":
 
     results = eval_sub_attributes(args)
 
-    sys.stdout = open(path_to_output_txt, 'a')
+    # Plot old vs new activation scores and save old_higher_list
+    # (done before redirecting stdout so print messages go to console)
+    plot_old_vs_new_scores(results, out_folder_path)
 
+    sys.stdout = open(path_to_output_txt, 'a')
     print_results(results)
