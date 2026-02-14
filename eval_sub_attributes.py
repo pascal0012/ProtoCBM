@@ -2,16 +2,13 @@
 Evaluate trained models on the SUB dataset for ATTRIBUTE prediction accuracy.
 This is adapted from: https://github.com/ExplainableML/sub/blob/main/CBM_testing/test_ind_cbm_example.py
 
-Config Options:
-    use_majority_voting: bool (default: False)
-        If True, applies majority voting to denoise the ground-truth attributes.
-        For each class, if >50% of samples have an attribute, all samples get it;
-        if <=50% have it, the attribute is removed for that class.
-        This reduces noise from inconsistent attribute annotations.
+Ground-truth attributes are denoised via majority voting: for each class,
+if >50% of samples have an attribute it is set to 1, otherwise 0.
 
+Config Options:
     save_majority_csv: bool (default: False)
-        If True and use_majority_voting is True, saves the majority-voted
-        attributes to a CSV file at {log_dir}/eval_sub/majority_voted_attributes.csv
+        If True, saves the majority-voted attributes to a CSV file at
+        {log_dir}/eval_sub/majority_voted_attributes.csv
 """
 
 import os
@@ -120,18 +117,17 @@ def normalize_sub_bird_name(name):
     return name.replace(" ", "_").lower()
 
 
-def build_bird_class_attribute_cache(val_pkl_path, img_dir, use_majority_voting=False):
+def build_bird_class_attribute_cache(val_pkl_path, img_dir):
     """
-    Build a cache mapping bird class names to their original CBM attribute labels.
+    Build a cache mapping bird class names to their majority-voted CBM attribute labels.
 
-    This is done once at the start to avoid repeated file system lookups.
+    Uses majority voting to denoise attributes: for each class, if >50% of samples
+    have an attribute, it is set to 1; otherwise 0. This gives each bird class
+    exactly one deterministic attribute per body part.
 
     Args:
         val_pkl_path: Path to validation pkl file with attribute labels
         img_dir: Path to CUB images directory (for class name mapping)
-        use_majority_voting: If True, apply majority voting to denoise attributes.
-            For each class, if >50% of samples have an attribute, all samples get it;
-            if <=50% have it, the attribute is removed for that class.
 
     Returns:
         bird_to_attrs: Dict mapping normalized bird name -> list of 112 binary attribute labels
@@ -149,44 +145,33 @@ def build_bird_class_attribute_cache(val_pkl_path, img_dir, use_majority_voting=
     # Load validation data
     data = pickle.load(open(val_pkl_path, "rb"))
 
-    if use_majority_voting:
-        # Aggregate attributes per class for majority voting
-        class_attr_counts = defaultdict(lambda: {"total": 0, "attr_sums": None})
+    # Aggregate attributes per class for majority voting
+    class_attr_counts = defaultdict(lambda: {"total": 0, "attr_sums": None})
 
-        for d in data:
-            class_idx = d["class_label"]
-            attrs = d["attribute_label"]
+    for d in data:
+        class_idx = d["class_label"]
+        attrs = d["attribute_label"]
 
-            if class_attr_counts[class_idx]["attr_sums"] is None:
-                class_attr_counts[class_idx]["attr_sums"] = [0] * len(attrs)
+        if class_attr_counts[class_idx]["attr_sums"] is None:
+            class_attr_counts[class_idx]["attr_sums"] = [0] * len(attrs)
 
-            class_attr_counts[class_idx]["total"] += 1
-            for i, attr_val in enumerate(attrs):
-                class_attr_counts[class_idx]["attr_sums"][i] += attr_val
+        class_attr_counts[class_idx]["total"] += 1
+        for i, attr_val in enumerate(attrs):
+            class_attr_counts[class_idx]["attr_sums"][i] += attr_val
 
-        # Apply majority voting: >50% -> 1, <=50% -> 0
-        bird_to_attrs = {}
-        for class_idx, counts in class_attr_counts.items():
-            if class_idx in class_idx_to_bird_name:
-                bird_name = class_idx_to_bird_name[class_idx]
-                normalized_name = normalize_sub_bird_name(bird_name)
+    # Apply majority voting: >50% -> 1, <=50% -> 0
+    bird_to_attrs = {}
+    for class_idx, counts in class_attr_counts.items():
+        if class_idx in class_idx_to_bird_name:
+            bird_name = class_idx_to_bird_name[class_idx]
+            normalized_name = normalize_sub_bird_name(bird_name)
 
-                total = counts["total"]
-                majority_attrs = [
-                    1 if attr_sum / total > 0.5 else 0
-                    for attr_sum in counts["attr_sums"]
-                ]
-                bird_to_attrs[normalized_name] = majority_attrs
-    else:
-        # Original behavior: use first sample's attributes for each class
-        bird_to_attrs = {}
-        for d in data:
-            class_idx = d["class_label"]
-            if class_idx in class_idx_to_bird_name:
-                bird_name = class_idx_to_bird_name[class_idx]
-                normalized_name = normalize_sub_bird_name(bird_name)
-                if normalized_name not in bird_to_attrs:
-                    bird_to_attrs[normalized_name] = d["attribute_label"]
+            total = counts["total"]
+            majority_attrs = [
+                1 if attr_sum / total > 0.5 else 0
+                for attr_sum in counts["attr_sums"]
+            ]
+            bird_to_attrs[normalized_name] = majority_attrs
 
     return bird_to_attrs
 
@@ -213,18 +198,17 @@ def save_majority_voted_attributes_csv(bird_to_attrs, cbm_attr_names, output_pat
     return df
 
 
-def find_original_attribute_indices(
+def find_original_attribute_index(
     bird_name, changed_attr_sub_name, cbm_attr_names, bird_to_attrs
 ):
     """
-    Find which original attributes were replaced by the changed attribute.
+    Find the original attribute that was replaced by the changed attribute.
+
+    With majority voting, each bird class has exactly one active attribute per body part,
+    so this returns a single CBM index.
 
     For example, if a Cardinal normally has "has_breast_color::red" and SUB changed it to
-    "has_breast_color::blue", this function returns the CBM indices for all originally
-    active attributes of that type.
-
-    Note: Birds can have MULTIPLE active attributes per body part (e.g., a bird's back
-    might be both brown and buff). This function returns ALL such attributes.
+    "has_breast_color::blue", this function returns the CBM index for "has_breast_color::red".
 
     Args:
         bird_name: Bird species name (e.g., "Cardinal")
@@ -233,34 +217,35 @@ def find_original_attribute_indices(
         bird_to_attrs: Cached dict mapping normalized bird name -> attribute labels
 
     Returns:
-        List of CBM indices for original attributes that were present before substitution,
-        or empty list if none found
+        CBM index (int) of the original attribute, or None if not found
     """
     # Get the attribute type (e.g., "has_breast_color" from "has_breast_color--blue")
     attr_type = changed_attr_sub_name.split("--")[0]
 
     # Find all CBM attributes of the same type
-    candidate_indices: list[int] = []
+    candidate_indices = []
     for cbm_idx, cub_name in enumerate(cbm_attr_names):
         if cub_name.startswith(attr_type + "::"):
             candidate_indices.append(cbm_idx)
 
     if not candidate_indices:
-        return []
+        return None
 
     # Get the base attributes for this bird from cache (using normalized name)
     normalized_name = normalize_sub_bird_name(bird_name)
     base_attrs = bird_to_attrs.get(normalized_name)
     if base_attrs is None:
-        return []
+        return None
 
-    # Find ALL candidate attributes that are present in the base bird
-    original_indices = [cbm_idx for cbm_idx in candidate_indices if base_attrs[cbm_idx]]
+    # Find the active attribute for this body part (should be exactly one with majority voting)
+    for cbm_idx in candidate_indices:
+        if base_attrs[cbm_idx]:
+            return cbm_idx
 
-    return original_indices
+    return None
 
 
-def get_attribute_predictions(model, inputs, device, return_features=False):
+def get_attribute_predictions(model, inputs, return_features=False):
     """
     Get attribute predictions from model output.
 
@@ -271,7 +256,6 @@ def get_attribute_predictions(model, inputs, device, return_features=False):
     Args:
         model: The trained model
         inputs: Tuple of input tensors (images, attr_labels)
-        device: Device to run on
         return_features: If True, return raw feature activations for old/new attribute comparison
 
     Returns:
@@ -374,23 +358,14 @@ def eval_sub_attributes(args):
             f"Image directory not found at {img_dir}. Check your image_dir config."
         )
 
-    # Check for majority voting flag
-    use_majority_voting = getattr(args, "use_majority_voting", False)
     save_majority_csv = getattr(args, "save_majority_csv", False)
 
-    print("Building bird class attribute cache...")
-    if use_majority_voting:
-        print("Using MAJORITY VOTING to denoise attributes (>50% threshold)")
-    else:
-        print("Using ORIGINAL per-sample attributes (no denoising)")
-
-    bird_to_attrs = build_bird_class_attribute_cache(
-        val_pkl_path, img_dir, use_majority_voting=use_majority_voting
-    )
+    print("Building bird class attribute cache (majority voting, >50% threshold)...")
+    bird_to_attrs = build_bird_class_attribute_cache(val_pkl_path, img_dir)
     print(f"Cached attributes for {len(bird_to_attrs)} bird classes")
 
     # Optionally save majority-voted attributes to CSV
-    if use_majority_voting and save_majority_csv:
+    if save_majority_csv:
         csv_path = os.path.join(args.log_dir, "eval_sub", "majority_voted_attributes.csv")
         os.makedirs(os.path.dirname(csv_path), exist_ok=True)
         save_majority_voted_attributes_csv(bird_to_attrs, cbm_attr_names, csv_path)
@@ -406,24 +381,15 @@ def eval_sub_attributes(args):
     per_attr_original_correct = torch.zeros(N_ATTRIBUTES_CBM)
     per_attr_original_total = torch.zeros(N_ATTRIBUTES_CBM)
 
-    # Track samples where model gets both right (adapts) vs both wrong (memorizes)
-    both_correct = 0    # Adapts: sees new as present AND original as absent
-    both_wrong = 0      # Memorizes: sees new as absent AND original as present
-
     # Track feature differences between old and new attributes
     feature_diff_stats = {
         'l1_distances': [],  # L1 distance between old and new feature activations (all cases)
         'probs_distances': [],  # distances between probabilities
-        # Breakdown by prediction scenarios
-        'adapts': [],  # new=present, old=absent (model adapts)
-        'memorizes': [],  # new=absent, old=present (model memorizes)
-        'both_present': [],  # new=present, old=present
-        'both_absent': [],  # new=absent, old=absent
     }
 
     # Per-sample activation scores for old vs new attributes
     sample_new_scores = []   # sigmoid activation for new attribute per sample
-    sample_old_scores = []   # sigmoid activation for old attribute per sample (avg if multiple)
+    sample_old_scores = []   # sigmoid activation for old attribute per sample
     old_higher_list = []     # 1 if old activation > new activation, 0 otherwise
 
     # Track unmatched items for debugging
@@ -441,7 +407,7 @@ def eval_sub_attributes(args):
 
             # Get attribute predictions and raw features
             attr_preds, attr_probs, attr_features = get_attribute_predictions(
-                model, (images, attr_labels), device, return_features=True
+                model, (images, attr_labels), return_features=True
             )
             attr_preds = attr_preds.cpu()
             attr_probs = attr_probs.cpu()
@@ -459,18 +425,18 @@ def eval_sub_attributes(args):
                     unmatched_attrs.add(sub_attr_name)
                     continue
 
-                # Find ORIGINAL attributes - skip sample if not found
-                # This ensures both metrics are evaluated on the same samples
-                original_cbm_indices = find_original_attribute_indices(
+                # Find ORIGINAL attribute - skip sample if not found
+                original_cbm_idx = find_original_attribute_index(
                     bird_name, sub_attr_name, cbm_attr_names, bird_to_attrs
                 )
 
-                if not original_cbm_indices:
+                if original_cbm_idx is None:
                     unmatched_birds.add(bird_name)
                     continue  # Skip this sample entirely
 
                 total_samples += 1
-                per_attr_new_total[new_cbm_idx] += 1    # Count for attribute
+                per_attr_new_total[new_cbm_idx] += 1
+                per_attr_original_total[original_cbm_idx] += 1
 
                 # Test 1: Is the NEW (substituted) attribute predicted as PRESENT?
                 new_is_correct = attr_preds[i, new_cbm_idx] == 1
@@ -478,70 +444,25 @@ def eval_sub_attributes(args):
                     new_attr_correct += 1
                     per_attr_new_correct[new_cbm_idx] += 1
 
-                # Test 2: Are ALL ORIGINAL attributes predicted as ABSENT?
-                # Note: Birds can have multiple active attributes per body part
-                # Check each original attribute - ALL must be predicted as absent
-                all_originals_absent = True
-                any_original_present = False
-                for original_cbm_idx in original_cbm_indices:
-                    per_attr_original_total[original_cbm_idx] += 1
-                    if attr_preds[i, original_cbm_idx] == 0:
-                        per_attr_original_correct[original_cbm_idx] += 1
-                    else:
-                        all_originals_absent = False
-                        any_original_present = True
-
-                # Original is "correct" only if ALL original attrs are absent
-                if all_originals_absent:
+                # Test 2: Is the ORIGINAL attribute predicted as ABSENT?
+                original_is_absent = attr_preds[i, original_cbm_idx] == 0
+                if original_is_absent:
                     original_attr_correct += 1
-
-                # Track adaptation vs memorization
-                if new_is_correct and all_originals_absent:
-                    both_correct += 1  # Model adapts to visual evidence
-                elif not new_is_correct and any_original_present:
-                    both_wrong += 1  # Model memorizes class-attribute correlations
+                    per_attr_original_correct[original_cbm_idx] += 1
 
                 # Compute feature differences between old and new attributes
                 # Apply sigmoid to get activations in [0, 1] range
-                new_feature_raw = attr_features[i, new_cbm_idx]
-                new_feature = torch.sigmoid(new_feature_raw)
-                new_pred_present = attr_preds[i, new_cbm_idx] == 1
+                new_feature = torch.sigmoid(attr_features[i, new_cbm_idx])
+                old_feature = torch.sigmoid(attr_features[i, original_cbm_idx])
+
                 new_feature_probs = attr_probs[i, new_cbm_idx]
-
-                for original_cbm_idx in original_cbm_indices:
-                    old_feature_raw = attr_features[i, original_cbm_idx]
-                    old_feature = torch.sigmoid(old_feature_raw)
-                    old_pred_present = attr_preds[i, original_cbm_idx] == 1
+                for original_cbm_idx in original_cbm_idx:
                     old_feature_probs = attr_probs[i, original_cbm_idx]
-
-                    # L1 distance (for all cases) - now between sigmoid activations
-                    l1_dist = torch.abs(new_feature - old_feature).item()
-                    feature_diff_stats['l1_distances'].append(l1_dist)
-
-                    # Distance between probs
                     feature_diff_stats['probs_distances'].append(new_feature_probs - old_feature_probs)
 
-                    # Categorize by prediction scenario
-                    if new_pred_present and not old_pred_present:
-                        # Model adapts: new=present, old=absent
-                        feature_diff_stats['adapts'].append(l1_dist)
-                    elif not new_pred_present and old_pred_present:
-                        # Model memorizes: new=absent, old=present
-                        feature_diff_stats['memorizes'].append(l1_dist)
-                    elif new_pred_present and old_pred_present:
-                        # Both predicted as present
-                        feature_diff_stats['both_present'].append(l1_dist)
-                    else:
-                        # Both predicted as absent
-                        feature_diff_stats['both_absent'].append(l1_dist)
-
-                # Store per-sample scores: new vs old (average over original indices)
+                # Store per-sample scores: new vs old
                 new_score = new_feature.item()
-                old_scores = [
-                    torch.sigmoid(attr_features[i, idx]).item()
-                    for idx in original_cbm_indices
-                ]
-                old_score = np.mean(old_scores)
+                old_score = old_feature.item()
                 sample_new_scores.append(new_score)
                 sample_old_scores.append(old_score)
                 old_higher_list.append(1 if old_score > new_score else 0)
@@ -551,8 +472,6 @@ def eval_sub_attributes(args):
         "total_samples": total_samples,
         "new_attr_correct": new_attr_correct,
         "original_attr_correct": original_attr_correct,
-        "both_correct": both_correct,
-        "both_wrong": both_wrong,
         "per_attr_new_correct": per_attr_new_correct,
         "per_attr_new_total": per_attr_new_total,
         "per_attr_original_correct": per_attr_original_correct,
@@ -560,7 +479,6 @@ def eval_sub_attributes(args):
         "cbm_attr_names": cbm_attr_names,
         "unmatched_birds": unmatched_birds,
         "unmatched_attrs": unmatched_attrs,
-        "use_majority_voting": use_majority_voting,
         "feature_diff_stats": feature_diff_stats,
         "sample_new_scores": sample_new_scores,
         "sample_old_scores": sample_old_scores,
@@ -641,24 +559,15 @@ def print_results(results):
     total = results["total_samples"]
     new_correct = results["new_attr_correct"]
     original_correct = results["original_attr_correct"]
-    both_correct = results["both_correct"]
-    both_wrong = results["both_wrong"]
     unmatched_birds = results["unmatched_birds"]
     unmatched_attrs = results["unmatched_attrs"]
-    use_majority_voting = results.get("use_majority_voting", False)
     feature_diff_stats = results.get("feature_diff_stats", {})
 
     print("\n" + "=" * 70)
     print("SUB BENCHMARK RESULTS")
     print("=" * 70)
 
-    # Show attribute mode
-    if use_majority_voting:
-        print("\nAttribute Mode: MAJORITY VOTING (denoised)")
-        print("  - Attributes with >50% presence in class are set to 1")
-        print("  - Attributes with <=50% presence in class are set to 0")
-    else:
-        print("\nAttribute Mode: ORIGINAL (per-sample, potentially noisy)")
+    print("\nAttribute Mode: MAJORITY VOTING (denoised)")
 
     print(f"\nTotal samples evaluated: {total}")
     print("(Only samples where both new and original attributes are in CBM-112)")
@@ -725,30 +634,6 @@ def print_results(results):
         print("\n2. Difference-based Original Attribute Hallucination (predicts removed attr as PRESENT):")
         print(f"   Rate: {diff_based_original_predicted:.2f}% ({diff_based_original_present}/{tmp_total})")
 
-    # Adaptation vs Memorization analysis
-    print("\n" + "-" * 70)
-    print("ADAPTATION vs MEMORIZATION ANALYSIS")
-    print("-" * 70)
-
-    if total > 0:
-        adapt_rate = 100 * both_correct / total
-        memorize_rate = 100 * both_wrong / total
-        mixed_rate = 100 * (total - both_correct - both_wrong) / total
-
-        print(
-            f"\n   Adapts (new=1, original=0):    {adapt_rate:5.2f}% ({both_correct}/{total})"
-        )
-        print(
-            f"   Memorizes (new=0, original=1): {memorize_rate:5.2f}% ({both_wrong}/{total})"
-        )
-        print(
-            f"   Mixed results:                 {mixed_rate:5.2f}% ({total - both_correct - both_wrong}/{total})"
-        )
-
-        print("\n   Interpretation:")
-        print("   - 'Adapts': Model correctly recognizes the visual change")
-        print("   - 'Memorizes': Model ignores visual evidence, relies on class priors")
-        print("   - 'Mixed': Model partially adapts (one metric correct, one wrong)")
 
     # Feature difference statistics
     if feature_diff_stats and len(feature_diff_stats.get('l1_distances', [])) > 0:
@@ -765,33 +650,6 @@ def print_results(results):
         print(f"      Std:    {np.std(l1_distances):.4f}")
         print(f"      Min:    {np.min(l1_distances):.4f}")
         print(f"      Max:    {np.max(l1_distances):.4f}")
-        print("      Note: Distances computed between sigmoid-activated features [0, 1]")
-
-        # Breakdown by prediction scenario
-        print("\n   Feature Distance by Prediction Scenario:")
-        print(f"   {'Scenario':<30} {'Count':<10} {'Mean':<10} {'Median':<10} {'Std':<10}")
-        print("   " + "-" * 70)
-
-        scenarios = [
-            ('adapts', 'Adapts (new=1, old=0)'),
-            ('memorizes', 'Memorizes (new=0, old=1)'),
-            ('both_present', 'Both present (new=1, old=1)'),
-            ('both_absent', 'Both absent (new=0, old=0)'),
-        ]
-
-        for key, label in scenarios:
-            distances = feature_diff_stats[key]
-            if len(distances) > 0:
-                print(f"   {label:<30} {len(distances):<10} {np.mean(distances):<10.4f} "
-                      f"{np.median(distances):<10.4f} {np.std(distances):<10.4f}")
-            else:
-                print(f"   {label:<30} {0:<10} {'N/A':<10} {'N/A':<10} {'N/A':<10}")
-
-        print("\n   Interpretation:")
-        print("   - Higher distances = larger changes in model's internal representations")
-        print("   - 'Adapts': Model correctly changes its activation for the new attribute")
-        print("   - 'Memorizes': Model keeps old attribute active despite visual evidence")
-        print("   - 'Both present/absent': Model predicts both attributes the same way")
 
     # Per-attribute breakdown
     print("\n" + "-" * 70)
