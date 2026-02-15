@@ -17,6 +17,7 @@ from utils_protocbm.mappings import (
 from utils_protocbm.index_translation import map_attribute_ids_from_cub_to_cbm
 from utils_protocbm.protomod_utils import add_glasso, get_middle_graph
 from models.concept_mapper import ProtoMod
+from localization.gaussian_targets import GaussianTargetGenerator
 
 
 class ProtoModLoss(nn.Module):
@@ -168,24 +169,30 @@ class ProtoModLoss(nn.Module):
 
 class LocalizationDistanceLoss(nn.Module):
     """
-    Loss function that computes the distance between predicted keypoints
-    (obtained via argmax on attention maps) and ground truth keypoints.
+    Loss function that supervises attention maps using Gaussian target heatmaps
+    centered on ground truth keypoints.
 
-    This encourages the model to localize concepts accurately by penalizing
-    the Euclidean distance between predicted and ground truth positions.
+    For each attribute, a 2D Gaussian is generated at the attention map's native
+    resolution, centered on the GT keypoint of the attribute's corresponding part.
+    The model's attention maps (after sigmoid) are compared against these targets
+    via MSE loss.
     """
 
-    def __init__(self, part_dict: Dict[int, str], part_attribute_mapping: Dict[str, torch.IntTensor], img_size: int = 299):
+    def __init__(self, part_dict: Dict[int, str], part_attribute_mapping: Dict[str, torch.IntTensor], img_size: int = 299, sigma: float = 1.0, loss_type: str = "mse"):
         """
         Args:
             part_dict: Mapping from part ID to part name
             part_attribute_mapping: Mapping from part name to attribute indices
             img_size: Size of the input images (assumes square images)
+            sigma: Standard deviation of the Gaussian targets in feature map space
+            loss_type: Loss function to compare predictions and targets ("mse" or "kl")
         """
         super(LocalizationDistanceLoss, self).__init__()
         self.part_dict = part_dict
         self.part_attribute_mapping = part_attribute_mapping
-        self.img_size = img_size
+        if loss_type not in ("mse", "kl"):
+            raise ValueError(f"Unsupported loss_type '{loss_type}'. Use 'mse' or 'kl'.")
+        self.loss_type = loss_type
 
         # Create lookup table: attr_idx -> part_idx
         num_attributes = max(
@@ -198,79 +205,65 @@ class LocalizationDistanceLoss(nn.Module):
                 attrs = part_attribute_mapping[part_name]
                 self.attr_to_part[attrs] = part_idx
 
+        # Pre-compute which attributes are mapped (avoid per-forward work)
+        self.mapped_attrs = (self.attr_to_part != -1).nonzero(as_tuple=True)[0]  # [M]
+        self.mapped_part_indices = self.attr_to_part[self.mapped_attrs]  # [M]
+
+        self.target_generator = GaussianTargetGenerator(img_size=img_size, sigma=sigma)
+
     def forward(
         self,
         attention_maps: torch.Tensor,
         part_gts: torch.Tensor,
     ) -> torch.Tensor:
         """
-        Compute localization distance loss.
+        Compute Gaussian heatmap supervision loss.
 
         Args:
             attention_maps: [B, A, H, W] attention maps from the model
-            part_gts: [B, K, 2] ground truth keypoint coordinates (x, y)
+            part_gts: [B, K, 2] ground truth keypoint coordinates (x, y) in image space
 
         Returns:
-            loss: Scalar tensor representing the mean distance loss
+            loss: Scalar MSE loss between sigmoid(attention_maps) and Gaussian targets
         """
-        B, A, H_att, W_att = attention_maps.shape
+        B, A, H, W = attention_maps.shape
+        device = attention_maps.device
 
-        # Resize attention maps to image size
-        resized_heatmaps = F.interpolate(
-            attention_maps,
-            size=self.img_size,
-            mode='bilinear',
-            align_corners=False
-        )  # [B, A, img_size, img_size]
+        # Move lookup tables to device if needed
+        if self.attr_to_part.device != device:
+            self.attr_to_part = self.attr_to_part.to(device)
+            self.mapped_attrs = self.mapped_attrs.to(device)
+            self.mapped_part_indices = self.mapped_part_indices.to(device)
 
-        # Compute predicted coordinates for every attribute using argmax
-        B, A, H, W = resized_heatmaps.shape
-        flat = resized_heatmaps.view(B, A, -1)
-        max_idx = flat.argmax(dim=2)  # [B, A]
+        # Generate Gaussian targets and validity mask
+        target, valid_mask = self.target_generator.generate(
+            part_gts, self.mapped_part_indices, H, W
+        )
 
-        y_attr = max_idx // W
-        x_attr = max_idx % W
-        predicted_coords = torch.stack((x_attr, y_attr), dim=2).float()  # [B, A, 2]
+        mask_expanded = valid_mask[:, :, None, None]  # [B, M, 1, 1]
+        n_valid = valid_mask.sum()
+        if n_valid == 0:
+            return torch.tensor(0.0, device=device, requires_grad=True)
 
-        # Move attr_to_part to the same device as attention_maps
-        if self.attr_to_part.device != attention_maps.device:
-            self.attr_to_part = self.attr_to_part.to(attention_maps.device)
+        if self.loss_type == "mse":
+            # Normalize attention maps to [0, 1]
+            pred = torch.sigmoid(attention_maps[:, self.mapped_attrs, :, :])  # [B, M, H, W]
+            pred_masked = pred * mask_expanded
+            target_masked = target * mask_expanded
+            loss = (pred_masked - target_masked).pow(2).sum() / (n_valid * H * W)
+        else:
+            # KL divergence: treat both as spatial distributions per attribute
+            # Normalize target to a probability distribution over H*W
+            target_flat = (target * mask_expanded).view(B, M, -1)  # [B, M, H*W]
+            target_dist = target_flat / (target_flat.sum(dim=-1, keepdim=True) + 1e-8)
 
-        # Compute distance for each attribute
-        distances = []
-        valid_counts = []
+            # Normalize predictions via log-softmax over spatial dimensions
+            pred_logits = attention_maps[:, self.mapped_attrs, :, :]  # [B, M, H, W]
+            pred_flat = (pred_logits * mask_expanded).view(B, M, -1)  # [B, M, H*W]
+            pred_log_dist = F.log_softmax(pred_flat, dim=-1)
 
-        for a in range(A):
-            part_idx = self.attr_to_part[a].item()
-            if part_idx == -1:
-                # Attribute not mapped to any part, skip
-                continue
+            # KL(target || pred) per valid attribute, averaged over valid count
+            kl = F.kl_div(pred_log_dist, target_dist, reduction='none').sum(dim=-1)  # [B, M]
+            loss = (kl * valid_mask).sum() / n_valid
 
-            # Get ground truth for this part
-            gt_coords = part_gts[:, part_idx, :].float()  # [B, 2]
-
-            # Check which samples have valid ground truth (not [0, 0])
-            valid_mask = (gt_coords.sum(dim=-1) != 0)  # [B]
-
-            if valid_mask.sum() == 0:
-                # No valid ground truth for this part in the batch
-                continue
-
-            # Compute Euclidean distance
-            diff = gt_coords - predicted_coords[:, a, :]  # [B, 2]
-            dist = torch.norm(diff, dim=1)  # [B]
-
-            # Only include valid samples
-            valid_dist = dist[valid_mask]
-            distances.append(valid_dist.sum())
-            valid_counts.append(valid_mask.sum())
-
-        # Compute mean distance across all valid attribute-part pairs
-        if len(distances) == 0:
-            # No valid ground truth in the batch, return zero loss
-            return torch.tensor(0.0, device=attention_maps.device, requires_grad=True)
-
-        total_distance = torch.stack(distances).sum()
-        total_count = sum(valid_counts)
-
-        return total_distance / total_count
+        return loss
