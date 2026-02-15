@@ -53,6 +53,12 @@ def eval(args):
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
 
+    # Per-attribute TP/FP/FN counters for precision/recall/F1
+    n_attrs = args.n_attributes
+    attr_tp = torch.zeros(n_attrs, device=device)
+    attr_fp = torch.zeros(n_attrs, device=device)
+    attr_fn = torch.zeros(n_attrs, device=device)
+
     if args.dataset == "waterbirds":
         class_acc_meter_water = AverageMeter()
         attr_acc_meter_water = AverageMeter()
@@ -87,6 +93,12 @@ def eval(args):
             # Calculate attribute accuracy
             attr_acc = binary_accuracy(scores, attr_labels)
             attr_acc_meter.update(attr_acc, pred.size(0))
+
+            # Accumulate TP/FP/FN for precision/recall/F1
+            attr_preds = (torch.sigmoid(scores) >= 0.5).float()
+            attr_tp += (attr_preds * attr_labels).sum(dim=0)
+            attr_fp += (attr_preds * (1 - attr_labels)).sum(dim=0)
+            attr_fn += ((1 - attr_preds) * attr_labels).sum(dim=0)
 
             # For waterbirds: Calculate class accuracy and binary accuracy separated for water and landbirds
             if args.dataset == "waterbirds":
@@ -189,6 +201,20 @@ def eval(args):
     print("\n--------- ACCURACIES ---------\n")
     print(f"Mean Classification Accuracy: {class_acc_meter.avg.item():.4f}")
     print(f"Mean Attribute Accuracy: {attr_acc_meter.avg.item():.4f}")
+
+    # Compute precision, recall, F1 from accumulated TP/FP/FN
+    precision_per_attr = attr_tp / (attr_tp + attr_fp + 1e-8)
+    recall_per_attr = attr_tp / (attr_tp + attr_fn + 1e-8)
+    f1_per_attr = 2 * precision_per_attr * recall_per_attr / (precision_per_attr + recall_per_attr + 1e-8)
+
+    macro_precision = precision_per_attr.mean().item()
+    macro_recall = recall_per_attr.mean().item()
+    macro_f1 = f1_per_attr.mean().item()
+
+    print(f"\n--------- ATTRIBUTE METRICS (macro-avg over {n_attrs} attrs) ---------\n")
+    print(f"Macro Precision: {macro_precision:.4f}")
+    print(f"Macro Recall:    {macro_recall:.4f}")
+    print(f"Macro F1:        {macro_f1:.4f}")
 
     # For waterbirds: Show accuracy metrics separated by land and water
     if args.dataset == "waterbirds":
