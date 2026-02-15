@@ -10,7 +10,104 @@ import torch
 import torch.nn.functional as F
 
 
-def visualize_keypoint_distances(gts, 
+def visualize_keypoints_to_figure(
+    imgs,
+    part_gts,
+    attention_maps,
+    similarity_scores,
+    part_dict,
+    part_attribute_mapping,
+    img_size,
+    t_mean=(0.5, 0.5, 0.5),
+    t_std=(2, 2, 2),
+):
+    """
+    Visualize GT vs predicted keypoints for a batch of images.
+    Predicted keypoints are derived from attention maps using per-part argmax.
+
+    Args:
+        imgs:                [N, C, H, W] normalized image tensors
+        part_gts:            [N, K, 2] ground truth keypoint coordinates
+        attention_maps:      [N, A, H, W] attention maps from the model
+        similarity_scores:   [N, A] per-attribute similarity scores
+        part_dict:           dict mapping part_id -> part_name (15 CUB parts)
+        part_attribute_mapping: dict mapping part_name -> tensor of attribute indices
+        img_size:            int, image resolution (299 or 224)
+        t_mean:              tuple, normalization mean for denormalization
+        t_std:               tuple, normalization std for denormalization
+
+    Returns:
+        matplotlib.Figure with N rows x 15 columns showing GT (green) vs pred (red)
+    """
+    N = imgs.shape[0]
+    K = len(part_dict)
+    part_names = list(part_dict.values())
+
+    # --- Compute predicted keypoints per part (argmax approach) ---
+    # For each part, pick the attribute with the highest similarity score
+    argmax_per_part = []
+    for part_name in part_names:
+        attrs = part_attribute_mapping[part_name].cpu()
+        subset = similarity_scores[:, attrs]  # [N, n_attrs_for_part]
+        argmax_in_subset = subset.argmax(dim=1)  # [N]
+        result = attrs[argmax_in_subset]  # [N] global attribute indices
+        argmax_per_part.append(result)
+
+    idx = torch.stack(argmax_per_part).t()  # [N, K]
+    batch_indices = torch.arange(N).unsqueeze(1)
+    heatmaps = attention_maps[batch_indices, idx]  # [N, K, H_att, W_att]
+
+    # Resize heatmaps to image resolution
+    resized = F.interpolate(
+        heatmaps.float(), size=img_size, mode="bilinear", align_corners=False
+    )  # [N, K, img_size, img_size]
+
+    # Argmax to get predicted (x, y) coordinates
+    flat = resized.view(N, K, -1)
+    max_idx = flat.argmax(dim=2)  # [N, K]
+    W = resized.shape[-1]
+    pred_x = max_idx % W
+    pred_y = max_idx // W
+    predicted_coords = torch.stack((pred_x, pred_y), dim=2)  # [N, K, 2]
+
+    # --- Create figure: N rows x 15 columns ---
+    fig, axes = plt.subplots(
+        N, min(K, 15), figsize=(3 * min(K, 15), 3 * N), squeeze=False
+    )
+
+    for row in range(N):
+        # Denormalize image
+        img_np = imgs[row].permute(1, 2, 0).cpu().numpy()
+        img_np = img_np * np.array(t_std) + np.array(t_mean)
+        img_np = np.clip(img_np, 0, 1)
+
+        for col in range(min(K, 15)):
+            ax = axes[row, col]
+            ax.imshow(img_np)
+            ax.axis("off")
+
+            gx, gy = part_gts[row, col].cpu().numpy()
+            px, py = predicted_coords[row, col].cpu().numpy()
+
+            if gx == 0 and gy == 0:
+                ax.set_title(f"{part_names[col]}\n(not visible)", fontsize=7)
+                continue
+
+            # GT keypoint (green circle)
+            ax.scatter(gx, gy, c="lime", s=40, marker="o", zorder=5)
+            # Predicted keypoint (red X)
+            ax.scatter(px, py, c="red", s=40, marker="x", zorder=5)
+            # Dashed line between them
+            ax.plot([gx, px], [gy, py], "w--", linewidth=1.5)
+
+            dist = np.sqrt((gx - px) ** 2 + (gy - py) ** 2)
+            ax.set_title(f"{part_names[col]}\nd={dist:.1f}", fontsize=7)
+
+    fig.tight_layout()
+    return fig
+
+
+def visualize_keypoint_distances(gts,
                                 imgs,
                                 img_paths, 
                                 preds, 
