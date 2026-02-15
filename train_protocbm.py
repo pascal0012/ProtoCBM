@@ -10,10 +10,15 @@ from torch import nn
 
 from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 from localization.localization_accuracy import (
     calculate_average_partwise_localization_distance,
     compute_localization_distance,
 )
+from localization.visualise import visualize_keypoints_to_figure
 from losses import LocalizationDistanceLoss, ProtoModLoss
 from utils_protocbm.eval_utils import (
     LocalizationMeter,
@@ -270,11 +275,44 @@ def train(model: nn.Module, args: Namespace, close_console: bool = True) -> floa
                 part_dict=train_loader.dataset.part_dict,
                 part_attribute_mapping=train_loader.dataset.map_part_to_attr_loc_acc,
                 img_size=train_loader.dataset.img_size,
+                sigma=getattr(args, "distance_loss_sigma", 1.0),
+                loss_type=getattr(args, "distance_loss_type", "mse"),
             ).to(device)
         else:
             raise ValueError(
                 "distance_loss is enabled but train_loader.dataset does not have required attributes"
             )
+
+    # ----- Sample fixed images for periodic keypoint visualization -----
+    viz_every = getattr(args, "viz_every", 50)
+    fixed_viz_data = None
+    if getattr(args, "distance_loss", False):
+        # Determine denormalization constants from backbone
+        if args.backbone == "inception":
+            viz_mean, viz_std = (0.5, 0.5, 0.5), (2, 2, 2)
+        else:
+            viz_mean, viz_std = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+
+        # Grab first batch from train_loader, pick up to 4 images
+        for batch in train_loader:
+            batch = [v if torch.is_tensor(v) else v for v in batch]
+            viz_inputs, _, viz_attr_labels, viz_part_gts = batch
+            n_viz = min(4, viz_inputs.shape[0])
+            # attr_labels comes as list of tensors from default collation
+            if isinstance(viz_attr_labels, (list, tuple)):
+                viz_attr_stacked = torch.stack(viz_attr_labels, dim=1).float()[:n_viz]
+            else:
+                viz_attr_stacked = viz_attr_labels[:n_viz].float()
+            fixed_viz_data = {
+                "imgs": viz_inputs[:n_viz].cpu(),
+                "attr_labels": viz_attr_stacked.cpu(),
+                "part_gts": viz_part_gts[:n_viz].cpu(),
+            }
+            break
+
+        viz_dir = os.path.join(args.log_dir, args.model_name, "keypoint_viz")
+        os.makedirs(viz_dir, exist_ok=True)
+        logger.write(f"Keypoint visualization enabled every {viz_every} epochs ({n_viz} fixed images)")
 
     best_val_epoch, best_val_metric = -1, -math.inf
 
@@ -316,6 +354,32 @@ def train(model: nn.Module, args: Namespace, close_console: bool = True) -> floa
                     localization_criterion=localization_criterion,
                 )
             )
+
+        # ----- Periodic keypoint visualization -----
+        if fixed_viz_data is not None and epoch % viz_every == 0:
+            model.eval()
+            with torch.no_grad():
+                viz_imgs_gpu = fixed_viz_data["imgs"].to(device)
+                viz_attr_gpu = fixed_viz_data["attr_labels"].to(device)
+                (_, viz_sim_scores, viz_attn_maps) = model(viz_imgs_gpu, viz_attr_gpu)
+
+                fig = visualize_keypoints_to_figure(
+                    imgs=fixed_viz_data["imgs"],
+                    part_gts=fixed_viz_data["part_gts"],
+                    attention_maps=viz_attn_maps.cpu(),
+                    similarity_scores=viz_sim_scores.cpu(),
+                    part_dict=train_loader.dataset.part_dict,
+                    part_attribute_mapping=train_loader.dataset.map_part_to_attr_loc_acc,
+                    img_size=train_loader.dataset.img_size,
+                    t_mean=viz_mean,
+                    t_std=viz_std,
+                )
+                tb_writer.add_figure("Keypoint_Visualization", fig, epoch)
+                fig.savefig(
+                    os.path.join(viz_dir, f"keypoints_epoch_{epoch}.png"),
+                    dpi=150, bbox_inches="tight",
+                )
+                plt.close(fig)
 
         # We are maximizing metric_criterion!
         if val_metric > best_val_metric:
@@ -374,4 +438,6 @@ if __name__ == "__main__":
 
         args.mode = "CY"
         print("Training with mode 'CY' (predicting classes from concepts)...")
+        train(model, args)
+    else:
         train(model, args)
