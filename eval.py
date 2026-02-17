@@ -5,6 +5,7 @@ Evaluate trained models on the official CUB test set
 import os
 import sys
 import torch
+import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
 
@@ -52,6 +53,7 @@ def eval(args):
     loc_acc_collector = []
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
+    attr_ce_meter = AverageMeter()
 
     if args.dataset == "waterbirds":
         class_acc_meter_water = AverageMeter()
@@ -87,6 +89,10 @@ def eval(args):
             # Calculate attribute accuracy
             attr_acc = binary_accuracy(scores, attr_labels)
             attr_acc_meter.update(attr_acc, pred.size(0))
+
+            # Calculate attribute cross-entropy
+            bce_loss = nn.BCEWithLogitsLoss()(scores, attr_labels.float())
+            attr_ce_meter.update(bce_loss, pred.size(0))
 
             # For waterbirds: Calculate class accuracy and binary accuracy separated for water and landbirds
             if args.dataset == "waterbirds":
@@ -189,6 +195,7 @@ def eval(args):
     print("\n--------- ACCURACIES ---------\n")
     print(f"Mean Classification Accuracy: {class_acc_meter.avg.item():.4f}")
     print(f"Mean Attribute Accuracy: {attr_acc_meter.avg.item():.4f}")
+    print(f"Mean Attribute Cross-Entropy: {attr_ce_meter.avg.item():.4f}")
 
     # For waterbirds: Show accuracy metrics separated by land and water
     if args.dataset == "waterbirds":
