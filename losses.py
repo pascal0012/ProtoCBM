@@ -32,6 +32,14 @@ class ProtoModLoss(nn.Module):
         }
         self.use_groups = args.loss_decorrelation_per_group
 
+        # Compute per-attribute pos_weight for class imbalance
+        from cub.dataset import find_class_imbalance
+        train_data_path = os.path.join(args.data_dir, "train.pkl")
+        imbalance_ratios = find_class_imbalance(train_data_path, multiple_attr=True)
+        self.register_buffer(
+            "pos_weight", torch.FloatTensor(imbalance_ratios[:args.n_attributes])
+        )
+
         self.middle_graph = get_middle_graph(kernel_size)
 
         # To calculate regularization among groups
@@ -70,10 +78,12 @@ class ProtoModLoss(nn.Module):
         attention_maps: torch.Tensor,
         attribute_labels: torch.Tensor,
     ):
-        # L_reg from the APN paper
-        attribute_reg_loss = self.reg_weights["attribute_reg"] * F.mse_loss(
-            similarity_scores, attribute_labels
+        # L_reg: BCE with logits + per-attribute pos_weight for class imbalance
+        # pos_weight = self.pos_weight.to(similarity_scores.device)
+        attribute_reg_loss = self.reg_weights["attribute_reg"] * F.binary_cross_entropy_with_logits(
+            similarity_scores, attribute_labels, #pos_weight=pos_weight
         )
+        
         loss = attribute_reg_loss
 
         batch_size, num_attributes, map_dim, _ = attention_maps.size()
@@ -227,6 +237,7 @@ class LocalizationDistanceLoss(nn.Module):
             loss: Scalar MSE loss between sigmoid(attention_maps) and Gaussian targets
         """
         B, A, H, W = attention_maps.shape
+        M = len(self.mapped_attrs)
         device = attention_maps.device
 
         # Move lookup tables to device if needed
