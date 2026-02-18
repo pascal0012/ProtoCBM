@@ -8,7 +8,6 @@ class WrapperCUB(nn.Module):
     You can choose which element (or combine them) for attribution.
     """
     def __init__(self, model, out_index=0, attr_labels=None):
-    def __init__(self, model, out_index=0, attr_labels=None):
         super().__init__()
         self.model = model
         self.out_index = out_index
