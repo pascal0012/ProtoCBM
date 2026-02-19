@@ -1,19 +1,19 @@
-experiment_name: protocbm_independent_tuning
+experiment_name: protocbm_x-to-c_tuning
 base_config: configs/protocbm/modes/independent.yaml
 num_trials: 50
 val_metric:
   - concept_acc
-  - class_acc
+mode: XC
 
 optimize:
   loss_weight_attribute_decorrelation:
     distribution: loguniform
-    low: 1e-5
-    high: 1e2
+    low: 0.00001
+    high: 10
   loss_weight_map_compactness:
     distribution: loguniform
-    low: 1e-5
-    high: 1e2
+    low: 0.00001
+    high: 10
   lr:
     distribution: categorical
     values: [0.01, 0.005, 0.001, 0.0005, 0.0001]

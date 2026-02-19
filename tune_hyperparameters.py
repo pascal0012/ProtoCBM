@@ -19,7 +19,7 @@ def objective(args: Namespace, trial: optuna.Trial):
     for param_name, param_config in args.optimize.items():
         if param_config["distribution"] == "loguniform":
             value = trial.suggest_float(
-                param_name, param_config["low"], param_config["high"]
+                param_name, param_config["low"], param_config["high"], log=True
             )
         elif param_config["distribution"] == "uniform":
             value = trial.suggest_uniform(

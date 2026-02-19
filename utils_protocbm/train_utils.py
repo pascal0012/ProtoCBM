@@ -342,7 +342,8 @@ def accuracy(output, target, topk=(1,)):
 
 def binary_accuracy(similarity_scores, target):
     """
-    Computes the accuracy for multiple binary predictions
+    Computes the accuracy for multiple binary predictions.
+    Applies sigmoid to raw similarity scores before thresholding at 0.5.
     output and target are Torch tensors
     """
     similarity_scores = torch.nn.Sigmoid()(similarity_scores)
@@ -355,8 +356,7 @@ def binary_accuracy(similarity_scores, target):
 
 def compute_attr_accuracy(attributes, attr_labels_var):
     """Compute binary accuracy over all attributes."""
-    sigmoid_outputs = torch.nn.Sigmoid()(attributes)
-    return binary_accuracy(sigmoid_outputs, attr_labels_var), attributes.size(0)
+    return binary_accuracy(attributes, attr_labels_var), attributes.size(0)
 
 
 def compute_accuracies(

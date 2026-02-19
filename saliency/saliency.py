@@ -39,9 +39,12 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=
 
         if args.model_name == "protocbm":
             from saliency.wrapper import WrapperProtoCBM
-            preds, similarity_scores, attention_maps = model(inputs)
-            
-            wrapped_model = WrapperProtoCBM(model)
+            preds, similarity_scores, attention_maps = model(inputs, attr_labels)
+
+            wrapped_model = WrapperProtoCBM(model, attr_labels=attr_labels)
+            preds, similarity_scores, attention_maps = model(inputs, attr_labels)
+
+            wrapped_model = WrapperProtoCBM(model, attr_labels=attr_labels)
 
             attribute_maps = torch.ones((inputs.shape[0], args.n_attributes, 8, 8))
             for target in range(args.n_attributes):
