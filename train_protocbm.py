@@ -114,7 +114,7 @@ def epoch_wrapper(
 
             # For X->C we do not train a classifier
             if args.mode == "XC":
-                classification_loss = torch.tensor(-1.0, device=device)
+                classification_loss = torch.tensor(0.0, device=device)
             else:
                 classification_loss = cross_entropy(
                     outputs, labels
@@ -123,7 +123,7 @@ def epoch_wrapper(
             (outputs, similarity_scores, attention_maps) = model(inputs, attr_labels)
 
             if args.mode == "XC":
-                classification_loss = torch.tensor(-1.0, device=device)
+                classification_loss = torch.tensor(0.0, device=device)
             else:
                 classification_loss = cross_entropy(outputs, labels)
 
@@ -135,9 +135,9 @@ def epoch_wrapper(
                 similarity_scores, attention_maps, attr_labels
             )
         else:
-            attribute_reg_loss = torch.tensor(-1, device=device)
-            cpt_loss = torch.tensor(-1, device=device)
-            decorrelation_loss = torch.tensor(-1, device=device)
+            attribute_reg_loss = torch.tensor(0.0, device=device)
+            cpt_loss = torch.tensor(0.0, device=device)
+            decorrelation_loss = torch.tensor(0.0, device=device)
 
         losses.append(attribute_reg_loss)
         losses.append(cpt_loss)

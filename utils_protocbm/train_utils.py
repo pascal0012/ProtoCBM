@@ -345,6 +345,7 @@ def binary_accuracy(similarity_scores, target):
     Computes the accuracy for multiple binary predictions
     output and target are Torch tensors
     """
+    similarity_scores = torch.nn.Sigmoid()(similarity_scores)
     pred = similarity_scores >= 0.5
 
     acc = (pred.int()).eq(target.int()).sum()
