@@ -4,15 +4,17 @@ import time
 from argparse import Namespace
 from datetime import datetime
 
+import matplotlib
 import numpy as np
 import torch
 from torch import nn
 
 from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
-import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
 from localization.localization_accuracy import (
     calculate_average_partwise_localization_distance,
@@ -136,16 +138,15 @@ def epoch_wrapper(
         if args.mode != "CY":
             _, attribute_reg_loss, cpt_loss, decorrelation_loss = protomod_criterion(
                 similarity_scores, attention_maps, attr_labels
-            )
+            )   
+        
+            if args.use_aux and model.training:
 
-            if args.use_aux:
-                _, attribute_reg_loss_aux, cpt_loss_aux, decorrelation_loss_aux = protomod_criterion(
-                    sim_scores_aux, attn_maps_aux, attr_labels
+                _, aux_attribute_reg_loss, _, _ = protomod_criterion(
+                    sim_scores_aux, attn_maps_aux, attr_labels, aux_forward=True
                 )
-                
-                attribute_reg_loss = (1.0 * attribute_reg_loss + 0.4 * attribute_reg_loss_aux) 
-                cpt_loss = (1.0 * cpt_loss + 0.4 * cpt_loss_aux) 
-                decorrelation_loss = (1.0 * decorrelation_loss + 0.4 * decorrelation_loss_aux) 
+
+                attribute_reg_loss = (1.0 * attribute_reg_loss) + (0.4 * aux_attribute_reg_loss)
 
         else:
             attribute_reg_loss = torch.tensor(0.0, device=device)
