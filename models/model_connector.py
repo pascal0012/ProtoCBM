@@ -111,7 +111,7 @@ class ModelConnector(nn.Module):
             else:
                 output = self.classifier(output)
 
-        return (output, sim_scores, maps) if not aux_forward else output
+        return (output, sim_scores, maps)
 
     def forward(self, x, attr_labels):
         """Returns either attr+aux_attr or only attr"""
