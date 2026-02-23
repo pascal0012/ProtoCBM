@@ -1,14 +1,49 @@
 from argparse import Namespace
+from copy import copy
 import os
+from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from typing import List
 
 from cub.config import BASE_DIR
 from cub.dataset import CUBLocalizationDataset, SUBDataset
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics
+from utils_protocbm.train_utils import create_model, prepare_model
+
+
+def create_model_for_eval(args: Namespace) -> Tuple[nn.Module, str, Optional[nn.Module]]:
+    """ Create and prepare model(s) for evaluation.
+
+    For independent models (mode: independent), loads both:
+      - XC model (xc_checkpoint): image -> concept scores + saliency
+      - CY model (cy_checkpoint): concept scores -> class predictions
+    For all other modes, loads the single joint model and returns cy_model=None.
+
+    Returns:
+        model:    The XC (or joint) model
+        device:   The device string
+        cy_model: The CY classifier model, or None for non-independent modes
+    """
+    if getattr(args, "mode", None) == "independent":
+        xc_args = copy(args)
+        xc_args.mode = "XC"
+        xc_args.checkpoint = getattr(args, "xc_checkpoint", None)
+        xc_model = create_model(xc_args)
+        xc_model, device = prepare_model(xc_model, xc_args, load_weights=True)
+
+        cy_args = copy(args)
+        cy_args.mode = "CY"
+        cy_args.checkpoint = getattr(args, "cy_checkpoint", None)
+        cy_model = create_model(cy_args)
+        cy_model, _ = prepare_model(cy_model, cy_args, load_weights=True)
+
+        return xc_model, device, cy_model
+    else:
+        model = create_model(args)
+        model, device = prepare_model(model, args, load_weights=True)
+        return model, device, None
 
 
 def get_eval_transform_for_model(model: nn.Module, args: Namespace):
