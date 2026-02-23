@@ -1,7 +1,3 @@
-"""
-Train InceptionV3 Network using the CUB-200-2011 dataset
-"""
-
 import argparse
 import math
 import os
