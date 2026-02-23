@@ -61,38 +61,6 @@ use_majority_voting: true       # Denoise ground truth via majority voting
 save_majority_csv: false        # Save majority-voted attributes to CSV
 ```
 
-##### Available Evaluation Scripts
-
-There are three evaluation scripts for the SUB benchmark, each testing a different aspect:
-
-**1. Attribute Substitution Accuracy** (`eval_sub_attributes.py`)
-
-Tests whether the model detects the substituted (new) attribute as present and the original attribute as absent on SUB images. This is the core SUB benchmark evaluation.
-
-```bash
-python eval_sub_attributes.py --config configs/eval_protocbm.yaml
-```
-
-Output is saved to `{log_dir}/eval_sub/sub_attribute_eval.txt`.
-
-**2. Overlapping Attribute Accuracy on CUB** (`eval_sub_overlap.py`)
-
-Evaluates prediction accuracy on the **CUB test set** for only the 17 attributes that overlap between SUB and CUB/CBM. This provides a baseline: how well does the model predict these specific attributes on standard (non-substituted) CUB images?
-
-```bash
-python eval_sub_overlap.py --config configs/eval_protocbm.yaml
-```
-
-Output is saved to `{log_dir}/eval_sub/cub_overlap_accuracy.txt`.
-
-**3. Visualization: Attention Heatmaps** (`visualize_sub_heatmaps.py`)
-
-Creates heatmap visualizations showing model attention for old vs. new attributes on SUB images. Supports both ProtoCBM (attention maps) and CBM (GradCAM).
-
-```bash
-python visualize_sub_heatmaps.py --config configs/eval_protocbm.yaml
-```
-
 
 ## Train the Model
 
@@ -114,7 +82,33 @@ This enables a loss term that penalizes the distance between predicted attention
 
 The repository contains different evaluation methods to test the effectiveness of the trained model.
 
+### Evaluate on CUB Test Set (`eval.py`)
 
+The main evaluation script measures classification accuracy, attribute accuracy, part segmentation IoU, and keypoint localization distance on the CUB test set.
+
+#### Joint / Standard Models
+
+```bash
+CONFIG=configs/protocbm/eval/eval_proto_final.yaml SCRIPT=eval.py sbatch run.slurm
+```
+
+#### Independent Models
+
+Independent CBM models use two separate checkpoints: an XC model (image → concept scores) and a CY model (concept scores → class predictions). Use the provided config:
+
+```bash
+CONFIG=configs/protocbm/eval/eval_independent.yaml SCRIPT=eval.py sbatch run.slurm
+```
+
+The key parameters in `configs/protocbm/eval/eval_independent.yaml`:
+
+```yaml
+mode: independent
+
+# Paths to the two checkpoints
+xc_checkpoint: weights/protoCBM-models/independent/xc_sigmoid.pth
+cy_checkpoint: weights/protoCBM-models/independent/cy_sigmoid.pth
+```
 
 ### Evaluate on SUB-Benchmark
 
