@@ -24,8 +24,8 @@ from localization.localization_accuracy import (
 )
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS
-from utils_protocbm.eval_utils import LocalizationMeter, get_localization_loader
-from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, prepare_model, create_model, gather_args
+from utils_protocbm.eval_utils import LocalizationMeter, get_localization_loader, create_model_for_eval
+from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, gather_args
 
 
 def eval(args):
@@ -39,10 +39,13 @@ def eval(args):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(42)
 
-    # Create the model and load weights
-    model = create_model(args)
-    model, device = prepare_model(model, args, load_weights=True)
+    is_independent = getattr(args, "mode", None) == "independent"
+
+    # Create the model(s) and load weights
+    model, device, cy_model = create_model_for_eval(args)
     model.eval()
+    if cy_model is not None:
+        cy_model.eval()
 
     # Get the localization data loader and additional transform statistics
     loader, transform_mean, transform_std, img_size = get_localization_loader(model, args.data_dir, args.split_dir, args)
@@ -98,11 +101,15 @@ def eval(args):
             saliency_maps = saliency_maps.to(device)
 
             # Calculate classification accuracy
-            class_acc = accuracy(pred, labels, topk=(1,))
-            class_acc_meter.update(class_acc[0], pred.size(0))
-
-            # Collect predictions and labels for confusion matrix
-            all_preds.append(pred.argmax(dim=1).cpu())
+            # For independent mode: chain XC concept scores through CY classifier
+            if is_independent:
+                concept_scores = torch.sigmoid(scores)
+                class_pred = cy_model.classifier(concept_scores)
+            else:
+                class_pred = pred
+            class_acc = accuracy(class_pred, labels, topk=(1,))
+            class_acc_meter.update(class_acc[0], class_pred.size(0))
+            all_preds.append(class_pred.argmax(dim=1).cpu())
             all_labels.append(labels.cpu())
 
             # Calculate attribute accuracy
@@ -129,7 +136,7 @@ def eval(args):
 
                 # Extract water birds data
                 water_mask = waterbirds_labels == 1
-                pred_w   = pred[water_mask]
+                pred_w   = class_pred[water_mask]
                 labels_w = labels[water_mask]
                 scores_w = scores[water_mask]
                 attr_w   = attr_labels[water_mask]
@@ -143,7 +150,7 @@ def eval(args):
 
                 # Extract land birds data
                 land_mask  = waterbirds_labels == 0
-                pred_l   = pred[land_mask]
+                pred_l   = class_pred[land_mask]
                 labels_l = labels[land_mask]
                 scores_l = scores[land_mask]
                 attr_l   = attr_labels[land_mask]
@@ -242,8 +249,10 @@ def eval(args):
     print(f"Macro F1:        {macro_f1:.4f}")
 
     # Classification report
+    all_labels_cat = torch.cat(all_labels).numpy()
+    all_preds_cat = torch.cat(all_preds).numpy()
     print("\n--------- CLASSIFICATION REPORT ---------\n")
-    print(classification_report(all_labels, all_preds, zero_division=0))
+    print(classification_report(all_labels_cat, all_preds_cat, zero_division=0))
 
     # Plot binary attribute confusion matrix (aggregated over all attributes)
     all_attr_preds = torch.cat(all_attr_preds).numpy().flatten()
