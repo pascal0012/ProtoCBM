@@ -25,12 +25,8 @@ from tqdm import tqdm
 
 from cub.dataset import SUBDataset
 from cub.config import BASE_DIR, N_ATTRIBUTES_CBM
-from utils_protocbm.train_utils import (
-    gather_args,
-    prepare_model,
-    create_model,
-)
-from utils_protocbm.eval_utils import get_eval_transform_for_model
+from utils_protocbm.train_utils import gather_args
+from utils_protocbm.eval_utils import get_eval_transform_for_model, create_model_for_eval
 from utils_protocbm.mappings import CBM_SELECTED_CUB_ATTRIBUTE_IDS
 from torch.utils.data import DataLoader
 
@@ -357,8 +353,7 @@ def eval_sub_attributes(args):
     2. Original attribute detection (should predict original attribute as ABSENT)
     """
     # Create the model and load weights
-    model = create_model(args)
-    model, device = prepare_model(model, args, load_weights=True)
+    model, device, _ = create_model_for_eval(args)
     model.eval()
 
     # Get transforms for the model
