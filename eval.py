@@ -199,7 +199,8 @@ def eval(args):
                     inputs, saliency_maps_upsampled, seg_masks_per_attribute,
                     attribute_names, iou_scores,
                     batch_idx=batch_idx,
-                    source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg
+                    source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg, 
+                    preds=torch.sigmoid(scores)
                 )
 
                 visualize_keypoint_distances(part_gts,

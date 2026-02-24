@@ -508,7 +508,8 @@ def visualise_part_segmentations(
     batch_idx=None,
     t_mean=(0.5, 0.5, 0.5),
     t_std=(2, 2, 2),
-    save_path=""
+    save_path="",
+    preds=None
 ):
     """
         imgs: torch.Tensor of [B, C, H, W] the respective images
@@ -522,6 +523,7 @@ def visualise_part_segmentations(
         t_mean: The mean applied during preprocessing of the image
         t_std: The std applied during preprocessing of the image
         save_path: Path where to save the visualizations
+        pred_mask: optinal mask with attribute predictions, if given then only plot the ones where we predict an attribute to be present
     """
 
     B, A, H, W = saliency_maps.shape
@@ -531,6 +533,11 @@ def visualise_part_segmentations(
     if isinstance(attributes, int):
         attributes = random.sample(range(A), attributes)
     n_attributes = len(attributes)
+
+    pred_mask = None
+    if preds is not None:
+        preds = preds[batch_idx][attributes]
+        pred_mask = (preds >= 0.5).float()
 
     img = imgs[batch_idx]
     masks = saliency_maps[batch_idx][attributes]
@@ -553,24 +560,41 @@ def visualise_part_segmentations(
     img_np = img_np * np.array(t_std) + np.array(t_mean)
     img_np = np.clip(img_np, 0, 1)
 
-    fig, axes = plt.subplots(2, n_attributes, figsize=(2*n_attributes, 5))
+    if pred_mask is not None:
+        assert len(pred_mask) == n_attributes, f"pred_mask should have length equal to number of attributes, but have {len(pred_mask)} and {n_attributes}"
+        n_plot_attributes = int(pred_mask.sum().item())
+        if n_plot_attributes == 0:
+            print(f"No predicted attributes for image {img_name}")
+            return
+    else:
+        n_plot_attributes = n_attributes
 
+
+    fig, axes = plt.subplots(2, n_plot_attributes, figsize=(2*n_plot_attributes, 5))
+
+
+    i = 0
     for col in range(n_attributes):
 
+        if pred_mask is not None and pred_mask[col] == 0:
+            continue
+
         # Attribute name along with the IoU score for that (gt, pred) pair
-        axes[0, col].set_title(f"{attr_names[col]}\n{ious[col]:.4f}", fontsize=9, pad=4)
+        axes[0, i].set_title(f"{attr_names[col]}\n{ious[col]:.4f}\n{preds[col]:.4f}", fontsize=9, pad=4)
 
         # Attention mask overlay
         attn_mask = masks[col].cpu().detach().numpy()
-        axes[0, col].imshow(img_np)
-        axes[0, col].imshow(attn_mask, cmap='jet', alpha=0.5)
-        axes[0, col].axis('off')
+        axes[0, i].imshow(img_np)
+        axes[0, i].imshow(attn_mask, cmap='jet', alpha=0.5)
+        axes[0, i].axis('off')
 
         # Segmentation mask overlay
         seg_mask = seg_masks[col].cpu().detach().numpy()
-        axes[1, col].imshow(img_np)
-        axes[1, col].imshow(seg_mask, cmap='spring', alpha=0.5)
-        axes[1, col].axis('off')
+        axes[1, i].imshow(img_np)
+        axes[1, i].imshow(seg_mask, cmap='spring', alpha=0.5)
+        axes[1, i].axis('off')
+
+        i = i + 1
 
     axes[0, 0].set_ylabel("ProtoNet Map")
     axes[1, 0].set_ylabel("Part Segmentation")
