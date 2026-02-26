@@ -79,9 +79,9 @@ class ProtoModLoss(nn.Module):
         attribute_labels: torch.Tensor,
     ):
         # L_reg: BCE with logits + per-attribute pos_weight for class imbalance
-        # pos_weight = self.pos_weight.to(similarity_scores.device)
+        pos_weight = self.pos_weight.to(similarity_scores.device)
         attribute_reg_loss = self.reg_weights["attribute_reg"] * F.binary_cross_entropy_with_logits(
-            similarity_scores, attribute_labels, #pos_weight=pos_weight
+            similarity_scores, attribute_labels, pos_weight=pos_weight
         )
         
         loss = attribute_reg_loss

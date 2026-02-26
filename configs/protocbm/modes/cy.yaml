@@ -1,0 +1,12 @@
+base_config: configs/protocbm/protocbm.yaml
+mode: CY
+log_dir: outputs/protocbm/cy
+
+# --- TO BE UPDATED ---
+lr: 0.01
+
+checkpoint: outputs/protocbm/xc/best_model_1.pth
+backbone_freeze: true
+loss_weight_attribute_reg: 0
+loss_weight_map_compactness: 0
+loss_weight_attribute_decorrelation: 0

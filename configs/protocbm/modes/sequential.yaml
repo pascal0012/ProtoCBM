@@ -1,11 +1,10 @@
 base_config: configs/protocbm/protocbm.yaml
-mode: XC->CY
-log_dir: outputs/protocbm/sequential
+mode: XC
+log_dir: outputs/protocbm/xc
 
 # --- TO BE UPDATED ---
-epochs: 100
 lr: 0.01
 
-loss_weight_attribute_reg: 0.8886
-loss_weight_map_compactness: 0.01
-loss_weight_attribute_decorrelation: 0.008823125255077393
+loss_weight_attribute_reg: 1
+loss_weight_map_compactness: 0.000035
+loss_weight_attribute_decorrelation: 0.00012
