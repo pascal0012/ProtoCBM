@@ -23,69 +23,71 @@ from models.models import ModelCtoY, ModelXtoC, ModelXtoCtoY, ModelXtoY
 from models.apn_baseline import load_apn_baseline
 
 
+def _resolve_weights_path(args: Namespace) -> str:
+    """Return the checkpoint path from args, falling back to ``log_dir/best_model_{seed}.pth``."""
+    if "weight_dir" in vars(args):
+        return args.weight_dir
+    if hasattr(args, "checkpoint") and args.checkpoint:
+        return args.checkpoint
+    if args.model_name == "apn":
+        return args.apn_weights_dir
+    return os.path.join(args.log_dir, f"best_model_{args.seed}.pth")
+
+
+def _clean_state_dict(
+    state_dict: dict, 
+    args: Namespace, 
+    training: bool
+) -> dict:
+    """Unwrap, strip aux weights, and remap legacy keys in a loaded state dict."""
+    # Unwrap full model saves
+    if hasattr(state_dict, "state_dict"):
+        state_dict = state_dict.state_dict()
+
+    # Drop aux weights not needed for inference
+    if args.model_name != "apn" and not training:
+        print("Deleting auxiliary logits and mapper weights from checkpoint...")
+        aux_keys = [
+            k for k in state_dict if "AuxLogits" in k or "aux_concept_mapper" in k
+        ]
+        for k in aux_keys:
+            del state_dict[k]
+
+    # Remap legacy End2EndModel keys → ModelConnector keys
+    # Legacy:  first_model (Inception3 + all_fc), sec_model (MLP classifier)
+    # Current: backbone, concept_mapper.all_fc, classifier
+    if any(k.startswith("first_model.") for k in state_dict):
+        print("Remapping legacy End2EndModel keys to ModelConnector format...")
+        remap = {}
+        for k, v in state_dict.items():
+            if k.startswith("first_model.all_fc."):
+                remap[k.replace("first_model.all_fc.", "concept_mapper.all_fc.")] = v
+            elif k.startswith("first_model."):
+                remap[k.replace("first_model.", "backbone.")] = v
+            elif k.startswith("sec_model."):
+                remap[k.replace("sec_model.", "classifier.")] = v
+            else:
+                remap[k] = v
+        state_dict = remap
+
+    return state_dict
+
+
 def prepare_model(
     model: nn.Module,
     args: Namespace,
     load_weights: bool = False,
     training: bool = False,
     compile: bool = True,
-):
-    # Load in weights, if any
+) -> Tuple[nn.Module, str]:
+    """Load weights (optional), move model to device, and optionally compile it.
+
+    Returns the model on the target device and the device string (``"cuda"`` or ``"cpu"``).
+    """
     if load_weights:
-        if "weight_dir" in vars(args):
-            state_dict = torch.load(args.weight_dir, weights_only=False)
-        elif hasattr(args, "checkpoint") and args.checkpoint:
-            state_dict = torch.load(args.checkpoint, weights_only=False)
-        else:
-            path_to_weights = (
-                args.apn_weights_dir
-                if args.model_name == "apn"
-                else os.path.join(args.log_dir, f"best_model_{args.seed}.pth")
-            )
-            state_dict = torch.load(path_to_weights, weights_only=False)
-
-        # Compatibilty with prior runs that saved the model fully and not only the state dict
-        if hasattr(state_dict, "state_dict"):
-            state_dict = state_dict.state_dict()
-
-        # Remove auxiliary logits and concept mapper, as it is not needed for inference
-        if not args.model_name == "apn" and not training:
-            print(
-                "Deleting all weights for auxiliary logits and auxiliary mappers from loaded model weights..."
-            )
-            keys_to_remove = [
-                k
-                for k in state_dict.keys()
-                if "AuxLogits" in k or "aux_concept_mapper" in k
-            ]
-            for k in keys_to_remove:
-                del state_dict[k]
-
-        # Remap keys from legacy End2EndModel format to ModelConnector format if needed
-        # Legacy End2EndModel structure:
-        #   first_model (Inception3): contains backbone layers + all_fc (attribute predictors)
-        #   sec_model (MLP): classifier
-        # Current ModelConnector structure:
-        #   backbone: CNN backbone only
-        #   concept_mapper: contains all_fc (attribute predictors)
-        #   classifier: final classifier
-        if any(k.startswith("first_model.") for k in state_dict.keys()):
-            print("Remapping legacy End2EndModel keys to ModelConnector format...")
-            new_state_dict = {}
-            for k, v in state_dict.items():
-                new_key = k
-                # Map first_model.all_fc -> concept_mapper.all_fc (attribute predictors)
-                if k.startswith("first_model.all_fc."):
-                    new_key = k.replace("first_model.all_fc.", "concept_mapper.all_fc.")
-                # Map first_model.* (other layers) -> backbone.* (CNN backbone)
-                elif k.startswith("first_model."):
-                    new_key = k.replace("first_model.", "backbone.")
-                # Map sec_model -> classifier (for MLP classifier)
-                elif k.startswith("sec_model."):
-                    new_key = k.replace("sec_model.", "classifier.")
-                new_state_dict[new_key] = v
-            state_dict = new_state_dict
-
+        path = _resolve_weights_path(args)
+        state_dict = torch.load(path, weights_only=False)
+        state_dict = _clean_state_dict(state_dict, args, training)
         model.load_state_dict(state_dict, strict=False)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -97,7 +99,11 @@ def prepare_model(
     return model, device
 
 
-def logger_and_summarywriter(args: Namespace, close_console=True):
+def logger_and_summarywriter(
+    args: Namespace, 
+    close_console: bool = True
+) -> Tuple["Logger", SummaryWriter]:
+    """Create a file logger and a TensorBoard writer, both rooted at ``log_dir/model_name/``."""
     os.makedirs(os.path.join(args.log_dir, args.model_name), exist_ok=True)
 
     write_console = getattr(args, "write_console", True)
@@ -117,7 +123,11 @@ def logger_and_summarywriter(args: Namespace, close_console=True):
     return logger, tb_writer
 
 
-def optimizer_and_scheduler_by_name(model: nn.Module, args: Namespace):
+def optimizer_and_scheduler_by_name(
+    model: nn.Module, 
+    args: Namespace
+) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.StepLR]:
+    """Build optimizer (Adam/AdamW/RMSprop/SGD) and a StepLR scheduler from args."""
     if args.optimizer == "Adam":
         optimizer = torch.optim.Adam(
             filter(lambda p: p.requires_grad, model.parameters()),
@@ -153,6 +163,7 @@ def optimizer_and_scheduler_by_name(model: nn.Module, args: Namespace):
 
 
 def model_by_mode(args: Namespace) -> nn.Module:
+    """Instantiate the model class matching ``args.mode`` (XCY, XY, XC, CY)."""
     if args.mode == "XCY" or args.mode == "XCCY" or args.mode == "XC->CY":
         model = ModelXtoCtoY(args)
     elif args.mode == "XY":
@@ -179,8 +190,7 @@ def model_by_mode(args: Namespace) -> nn.Module:
 
 
 def create_model(args: Namespace) -> nn.Module:
-    """
-    Create and return a model based on the model_name in args.
+    """Create and return a model based on the model_name in args.
 
     Supports: protocbm, cbm, apn
     """
@@ -195,7 +205,8 @@ def create_model(args: Namespace) -> nn.Module:
     return model
 
 
-def create_criterions(model: nn.Module, args: Namespace):
+def create_criterions(model: nn.Module, args: Namespace) -> Tuple[nn.CrossEntropyLoss, ProtoModLoss]:
+    """Return ``(cross_entropy, protomod_criterion)`` for a model with a ProtoMod concept mapper."""
     assert (
         model.concept_mapper is not None and type(model.concept_mapper) is ProtoMod
     ), "Model does not have a concept mapper for ProtoModLoss"
@@ -213,7 +224,10 @@ def build_attr_criterion(
     imbalance: Optional[List[float]],
     device: torch.device,
 ) -> Optional[List[nn.Module]]:
-    """Build attribute criterion based on configuration."""
+    """Build one loss per attribute: weighted BCEWithLogitsLoss or CrossEntropyLoss.
+
+    Returns ``None`` if attributes are disabled (``use_attr=False`` or ``no_img=True``).
+    """
     if not args.use_attr or args.no_img:
         return None
 

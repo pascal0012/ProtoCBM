@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics
 from localization.visualise import (
@@ -22,8 +24,8 @@ from localization.localization_accuracy import (
 )
 from saliency.saliency import get_saliency_map_and_scores_and_prediction
 from utils_protocbm.mappings import MAP_RESULT_GROUPS_TO_CUB_GROUPS
-from utils_protocbm.eval_utils import LocalizationMeter, get_localization_loader
-from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, prepare_model, create_model, gather_args
+from utils_protocbm.eval_utils import LocalizationMeter, get_localization_loader, create_model_for_eval
+from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, gather_args
 
 
 def eval(args):
@@ -37,10 +39,13 @@ def eval(args):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(42)
 
-    # Create the model and load weights
-    model = create_model(args)
-    model, device = prepare_model(model, args, load_weights=True)
+    is_independent = getattr(args, "mode", None) == "independent"
+
+    # Create the model(s) and load weights
+    model, device, cy_model = create_model_for_eval(args)
     model.eval()
+    if cy_model is not None:
+        cy_model.eval()
 
     # Get the localization data loader and additional transform statistics
     loader, transform_mean, transform_std, img_size = get_localization_loader(model, args.data_dir, args.split_dir, args)
@@ -54,6 +59,13 @@ def eval(args):
     class_acc_meter = AverageMeter()
     attr_acc_meter = AverageMeter()
     attr_ce_meter = AverageMeter()
+
+    # Collectors for confusion matrix
+    all_preds = []
+    all_labels = []
+    all_attr_preds = []
+    all_attr_labels = []
+    all_attr_preds_raw = []  # without sigmoid, threshold at 0
 
     # Per-attribute TP/FP/FN counters for precision/recall/F1
     n_attrs = args.n_attributes
@@ -89,8 +101,16 @@ def eval(args):
             saliency_maps = saliency_maps.to(device)
 
             # Calculate classification accuracy
-            class_acc = accuracy(pred, labels, topk=(1,)) 
-            class_acc_meter.update(class_acc[0], pred.size(0))
+            # For independent mode: chain XC concept scores through CY classifier
+            if is_independent:
+                concept_scores = torch.sigmoid(scores)
+                class_pred = cy_model.classifier(concept_scores)
+            else:
+                class_pred = pred
+            class_acc = accuracy(class_pred, labels, topk=(1,))
+            class_acc_meter.update(class_acc[0], class_pred.size(0))
+            all_preds.append(class_pred.argmax(dim=1).cpu())
+            all_labels.append(labels.cpu())
 
             # Calculate attribute accuracy
             attr_acc = binary_accuracy(scores, attr_labels)
@@ -106,12 +126,17 @@ def eval(args):
             attr_fp += (attr_preds * (1 - attr_labels)).sum(dim=0)
             attr_fn += ((1 - attr_preds) * attr_labels).sum(dim=0)
 
+            # Collect attribute predictions and labels for confusion matrix
+            all_attr_preds.append(attr_preds.cpu())
+            all_attr_labels.append(attr_labels.cpu())
+            all_attr_preds_raw.append((scores >= 0).float().cpu())
+
             # For waterbirds: Calculate class accuracy and binary accuracy separated for water and landbirds
             if args.dataset == "waterbirds":
 
                 # Extract water birds data
                 water_mask = waterbirds_labels == 1
-                pred_w   = pred[water_mask]
+                pred_w   = class_pred[water_mask]
                 labels_w = labels[water_mask]
                 scores_w = scores[water_mask]
                 attr_w   = attr_labels[water_mask]
@@ -125,7 +150,7 @@ def eval(args):
 
                 # Extract land birds data
                 land_mask  = waterbirds_labels == 0
-                pred_l   = pred[land_mask]
+                pred_l   = class_pred[land_mask]
                 labels_l = labels[land_mask]
                 scores_l = scores[land_mask]
                 attr_l   = attr_labels[land_mask]
@@ -174,7 +199,8 @@ def eval(args):
                     inputs, saliency_maps_upsampled, seg_masks_per_attribute,
                     attribute_names, iou_scores,
                     batch_idx=batch_idx,
-                    source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg
+                    source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg, 
+                    preds=torch.sigmoid(scores)
                 )
 
                 visualize_keypoint_distances(part_gts,
@@ -222,6 +248,42 @@ def eval(args):
     print(f"Macro Precision: {macro_precision:.4f}")
     print(f"Macro Recall:    {macro_recall:.4f}")
     print(f"Macro F1:        {macro_f1:.4f}")
+
+    # Classification report
+    all_labels_cat = torch.cat(all_labels).numpy()
+    all_preds_cat = torch.cat(all_preds).numpy()
+    print("\n--------- CLASSIFICATION REPORT ---------\n")
+    print(classification_report(all_labels_cat, all_preds_cat, zero_division=0))
+
+    # Plot binary attribute confusion matrix (aggregated over all attributes)
+    all_attr_preds = torch.cat(all_attr_preds).numpy().flatten()
+    all_attr_labels = torch.cat(all_attr_labels).numpy().flatten()
+    attr_cm = confusion_matrix(all_attr_labels, all_attr_preds, labels=[0, 1])
+    tn, fp, fn, tp = attr_cm.ravel()
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    disp = ConfusionMatrixDisplay(
+        confusion_matrix=attr_cm,
+        display_labels=["Absent (0)", "Present (1)"]
+    )
+    disp.plot(ax=ax, cmap="Blues", colorbar=False, values_format="d")
+    ax.set_title("Attribute Binary Confusion Matrix (all attributes)")
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
+    plt.tight_layout()
+    attr_cm_path = os.path.join(args.out_dir_part_seg, "attribute_confusion_matrix.png")
+    plt.savefig(attr_cm_path, dpi=150)
+    plt.close(fig)
+
+    print("\n--------- ATTRIBUTE CONFUSION MATRIX (sigmoid >= 0.5) ---------")
+    print(f"  TN={tn}  FP={fp}")
+    print(f"  FN={fn}  TP={tp}")
+    print(f"Attribute confusion matrix saved to {attr_cm_path}")
+
+    # Plot binary attribute confusion matrix WITHOUT sigmoid (raw logits >= 0)
+    all_attr_preds_raw = torch.cat(all_attr_preds_raw).numpy().flatten()
+    attr_cm_raw = confusion_matrix(all_attr_labels, all_attr_preds_raw, labels=[0, 1])
+    tn_r, fp_r, fn_r, tp_r = attr_cm_raw.ravel()
 
     # For waterbirds: Show accuracy metrics separated by land and water
     if args.dataset == "waterbirds":

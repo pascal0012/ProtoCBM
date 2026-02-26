@@ -52,6 +52,13 @@ class ModelConnector(nn.Module):
             raise ValueError(f"Unknown forward function name: {name}")
 
     def forward_featuresCBM(self, features, attr_labels=None, aux_forward=False):
+        """Implementes the forward function for the vanilla CBM model,
+
+        Args:
+            features: backbone features 
+            attr_labels (optional): optional attr_labesl. Defaults to None.
+            aux_forward (bool, optional): Wether to use the aux_concept_mapper or the main concept mapper. Defaults to False.
+        """
         # take the Backbone featuremaps and map to feature vector
         mapper = self.aux_concept_mapper if aux_forward else self.concept_mapper
         mapped_input = mapper(features)
@@ -71,6 +78,13 @@ class ModelConnector(nn.Module):
         return all_out
 
     def forward_featuresPROTO(self, features, attr_labels=None, aux_forward=False):
+        """Implementes the forward function for the ProtoCBM model.
+
+        Args:
+            features: backbone features 
+            attr_labels (optional): optional attr_labesl. Defaults to None.
+            aux_forward (bool, optional): Wether to use the aux_concept_mapper or the main concept mapper. Defaults to False.
+        """
         # Saves concept mapper outputs, if any
         maps, sim_scores = None, None
 
@@ -97,9 +111,10 @@ class ModelConnector(nn.Module):
             else:
                 output = self.classifier(output)
 
-        return (output, sim_scores, maps) if not aux_forward else output
+        return (output, sim_scores, maps)
 
     def forward(self, x, attr_labels):
+        """Returns either attr+aux_attr or only attr"""
         # ? XCY
         if self.training and self.use_aux:
             assert self.backbone is not None, (

@@ -77,12 +77,15 @@ class ProtoModLoss(nn.Module):
         similarity_scores: torch.Tensor,
         attention_maps: torch.Tensor,
         attribute_labels: torch.Tensor,
+        aux_forward: bool = False,
     ):
         # L_reg: BCE with logits + per-attribute pos_weight for class imbalance
         pos_weight = self.pos_weight.to(similarity_scores.device)
         attribute_reg_loss = self.reg_weights["attribute_reg"] * F.binary_cross_entropy_with_logits(
             similarity_scores, attribute_labels, pos_weight=pos_weight
         )
+        if aux_forward:
+            return (attribute_reg_loss, attribute_reg_loss, None, None)
         
         loss = attribute_reg_loss
 
@@ -104,6 +107,7 @@ class ProtoModLoss(nn.Module):
         prototypes = self.protomod.prototype_vectors.squeeze().reshape(
             num_attributes, num_vectors, -1
         )  # [num_attributes, num_vectors, channel_dim]
+
         if self.use_groups:
             # L_AD in the APN paper: Attribute decorrelation loss
             decorrelation_loss = zeros_like(cpt_loss)

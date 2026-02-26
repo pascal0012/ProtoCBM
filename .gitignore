@@ -7,6 +7,8 @@ outputs/
 outputs/*
 logs/
 base_weights/
+weights/
+weights/*
 
 # gitignore for uv (melih)
 .venv

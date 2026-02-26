@@ -4,15 +4,17 @@ import time
 from argparse import Namespace
 from datetime import datetime
 
+import matplotlib
 import numpy as np
 import torch
 from torch import nn
 
 from cub.config import BASE_DIR, LR_DECAY_SIZE, MIN_LR
 from cub.dataset import load_data
-import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
 from localization.localization_accuracy import (
     calculate_average_partwise_localization_distance,
@@ -108,9 +110,12 @@ def epoch_wrapper(
         losses = []
 
         if model.training and args.use_aux:
-            (outputs, similarity_scores, attention_maps), aux_outputs = model(
+            base_outputs, aux_outputs = model(
                 inputs, attr_labels
             )
+
+            (outputs, similarity_scores, attention_maps) = base_outputs
+            (out_aux, sim_scores_aux, attn_maps_aux) = aux_outputs
 
             # For X->C we do not train a classifier
             if args.mode == "XC":
@@ -118,7 +123,7 @@ def epoch_wrapper(
             else:
                 classification_loss = cross_entropy(
                     outputs, labels
-                ) + 0.4 * cross_entropy(aux_outputs, labels)
+                ) + 0.4 * cross_entropy(out_aux, labels)
         else:
             (outputs, similarity_scores, attention_maps) = model(inputs, attr_labels)
 
@@ -131,9 +136,18 @@ def epoch_wrapper(
 
         # Ignore protomod criterion if concepts were already provided
         if args.mode != "CY":
-            loss, attribute_reg_loss, cpt_loss, decorrelation_loss = protomod_criterion(
+            _, attribute_reg_loss, cpt_loss, decorrelation_loss = protomod_criterion(
                 similarity_scores, attention_maps, attr_labels
-            )
+            )   
+        
+            if args.use_aux and model.training:
+
+                _, aux_attribute_reg_loss, _, _ = protomod_criterion(
+                    sim_scores_aux, attn_maps_aux, attr_labels, aux_forward=True
+                )
+
+                attribute_reg_loss = (1.0 * attribute_reg_loss) + (0.4 * aux_attribute_reg_loss)
+
         else:
             attribute_reg_loss = torch.tensor(0.0, device=device)
             cpt_loss = torch.tensor(0.0, device=device)
