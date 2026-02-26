@@ -235,7 +235,7 @@ def epoch_wrapper(
                     dataloader.dataset.map_attr_id_to_part_seg_group
                 )
             if val_metric_str == "dist_loc":  # --- Localization distance
-                val_metric += torch.tensor(
+                val_metric += 0.1 * torch.tensor(
                     -calculate_average_partwise_localization_distance(
                         loc_acc_meter, MAP_RESULT_GROUPS_TO_CUB_GROUPS, verbose=False
                     )[1]

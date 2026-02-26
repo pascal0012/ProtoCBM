@@ -1,19 +1,21 @@
 experiment_name: protocbm_sequential_tuning
 base_config: configs/protocbm/modes/sequential.yaml
-num_trials: 75
+num_trials: 150
+epochs: 100
 val_metric:
   - concept_acc
+  - loc_dist
 mode: XC
 
 optimize:
   loss_weight_attribute_decorrelation:
     distribution: loguniform
-    low: 0.00001
-    high: 10
+    low: 0.0001
+    high: 1
   loss_weight_map_compactness:
     distribution: loguniform
-    low: 0.00001
-    high: 10
+    low: 0.0001
+    high: 1
   lr:
     distribution: categorical
     values: [0.01]
