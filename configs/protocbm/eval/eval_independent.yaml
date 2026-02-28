@@ -28,7 +28,7 @@ sub_limit: null
 
 batch_size: 64
 use_aux: false
-use_sigmoid: true  # xc_sigmoid.pth was trained with concept_activation: sigmoid
+use_sigmoid: false
 
 backbone: inception
 backbone_pretrained: true
