@@ -1,11 +1,14 @@
 base_config: configs/protocbm/protocbm.yaml
 mode: CY
-log_dir: outputs/protocbm/cy
+log_dir: outputs/protocbm/main/seq_cy_42131261
 
 # --- TO BE UPDATED ---
 lr: 0.01
 
-checkpoint: outputs/protocbm/xc/best_model_1.pth
+val_metric:   # Options: [class_acc, concept_acc, seg_iou, dist_loc], multiple can be combined.
+  - class_acc
+
+checkpoint: outputs/protocbm/main/xc_42131261/best_model_42131261.pth
 backbone_freeze: true
 loss_weight_attribute_reg: 0
 loss_weight_map_compactness: 0

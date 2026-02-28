@@ -1,10 +1,13 @@
 base_config: configs/protocbm/protocbm.yaml
 mode: XC
-log_dir: outputs/protocbm/xc
+log_dir: outputs/protocbm/main/xc_4714996
 
 # --- TO BE UPDATED ---
 lr: 0.01
 
+val_metric:   # Options: [class_acc, concept_acc, seg_iou, dist_loc], multiple can be combined.
+  - concept_acc
+
 loss_weight_attribute_reg: 1
-loss_weight_map_compactness: 0.000035
-loss_weight_attribute_decorrelation: 0.00012
+loss_weight_map_compactness: 0.0038
+loss_weight_attribute_decorrelation: 2e-05

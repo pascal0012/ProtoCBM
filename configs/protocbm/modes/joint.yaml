@@ -1,10 +1,14 @@
 base_config: configs/protocbm/protocbm.yaml
 mode: XCY
-log_dir: outputs/protocbm/joint
+log_dir: outputs/protocbm/main/joint_1
 
 # --- TO BE UPDATED ---
 lr: 0.01
 
-loss_weight_attribute_reg: 0.8886
-loss_weight_map_compactness: 0.01
-loss_weight_attribute_decorrelation: 0.008823125255077393
+val_metric:   # Options: [class_acc, concept_acc, seg_iou, dist_loc], multiple can be combined.
+  - class_acc
+  - concept_acc
+
+loss_weight_attribute_reg: 7.8
+loss_weight_map_compactness: 0.001
+loss_weight_attribute_decorrelation: 0.001
