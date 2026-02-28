@@ -144,7 +144,6 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
     group_idx = map_attr_id_to_part_seg_group.unsqueeze(0).expand(saliency_maps.shape[0], -1)  # Adapt to current batch size [B, A]
     group_idx = group_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, H, W)  # Adapt to part segmentation size [B,A,H,W]
     
-    """
     ##--- Argmaxing ---
     #since we have attribute id to group lookup, we group by part_seg_group and then take argmax from these indices in the scores
     groups = {}
@@ -170,7 +169,6 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
         argmax_mask[torch.arange(scores.shape[0]), argmaxes[:, g]] = True
     
     #------
-    """
 
     # Gather segmentation mask for each attribute
     seg_masks_per_attribute = torch.gather(part_seg_masks, 1, group_idx)         # [B,A,H,W]
@@ -191,14 +189,14 @@ def compute_IoU_to_seg_masks(saliency_maps: torch.Tensor, part_seg_masks: torch.
         iou_per_attr = compute_soft_iou(saliency_maps_upsampled, seg_masks_per_attribute) # [B, A]
 
     #combine argmax mask and presence mask to have only attributes with segmentation mask presence AND that are argmaxed
-    #valid_attr_mask = argmax_mask & gt_presence_mask
+    valid_attr_mask = argmax_mask & gt_presence_mask
 
     # Collect sum and count IoU for each attribute, mask out invalid entries
-    #iou_per_attr[~valid_attr_mask] = 0
-    iou_per_attr[~gt_presence_mask] = 0 
+    iou_per_attr[~valid_attr_mask] = 0
+    # iou_per_attr[~gt_presence_mask] = 0 
     iou_sum_per_attr = iou_per_attr.sum(dim=0)  # Sum per attribute
-    #iou_count_per_attr = valid_attr_mask.sum(dim=0)  # Count valid entries
-    iou_count_per_attr = gt_presence_mask.sum(dim=0)
+    iou_count_per_attr = valid_attr_mask.sum(dim=0)  # Count valid entries
+    # iou_count_per_attr = gt_presence_mask.sum(dim=0)
     
     return iou_per_attr, iou_sum_per_attr, iou_count_per_attr, saliency_maps_upsampled, seg_masks_per_attribute
 
