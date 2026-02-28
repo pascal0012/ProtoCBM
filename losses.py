@@ -255,6 +255,7 @@ class LocalizationDistanceLoss(nn.Module):
             part_gts, self.mapped_part_indices, H, W
         )
 
+        # boolean mask if the attribute has a valid GT keypoint
         mask_expanded = valid_mask[:, :, None, None]  # [B, M, 1, 1]
         n_valid = valid_mask.sum()
         if n_valid == 0:

@@ -107,6 +107,7 @@ def eval(args):
                 class_pred = cy_model.classifier(concept_scores)
             else:
                 class_pred = pred
+                
             class_acc = accuracy(class_pred, labels, topk=(1,))
             class_acc_meter.update(class_acc[0], class_pred.size(0))
             all_preds.append(class_pred.argmax(dim=1).cpu())
@@ -114,11 +115,11 @@ def eval(args):
 
             # Calculate attribute accuracy
             attr_acc = binary_accuracy(scores, attr_labels)
-            attr_acc_meter.update(attr_acc, pred.size(0))
+            attr_acc_meter.update(attr_acc, inputs.size(0))
 
             # Calculate attribute cross-entropy
             bce_loss = nn.BCEWithLogitsLoss()(scores, attr_labels.float())
-            attr_ce_meter.update(bce_loss, pred.size(0))
+            attr_ce_meter.update(bce_loss, inputs.size(0))
 
             # Accumulate TP/FP/FN for precision/recall/F1
             attr_preds = (torch.sigmoid(scores) >= 0.5).float()
@@ -306,7 +307,6 @@ if __name__ == '__main__':
     os.makedirs(out_folder_path, exist_ok=True)
     args.out_dir_part_seg = out_folder_path
 
-    # Print everything into separate file
     path_to_output_txt = os.path.join(args.out_dir_part_seg, "eval.txt")
     print(f"Writing outputs into {path_to_output_txt}.")
     sys.stdout = open(path_to_output_txt, 'a')

@@ -70,6 +70,26 @@ def _clean_state_dict(
                 remap[k] = v
         state_dict = remap
 
+    # Remap flat legacy XC-only checkpoint keys → ModelConnector keys
+    # Legacy:  Conv2d_*/Mixed_*/fc.* (flat Inception3), all_fc.* (concept head)
+    # Current: backbone.*, concept_mapper.all_fc.*
+    elif any(k.startswith("all_fc.") for k in state_dict):
+        print("Remapping flat legacy XC keys to ModelConnector format...")
+        remap = {}
+        for k, v in state_dict.items():
+            if k.startswith("all_fc."):
+                remap["concept_mapper." + k] = v
+            else:
+                remap["backbone." + k] = v
+        state_dict = remap
+
+    # Remap flat legacy CY-only checkpoint keys → ModelConnector keys
+    # Legacy:  linear.weight / linear.bias
+    # Current: classifier.linear.weight / classifier.linear.bias
+    elif list(state_dict.keys()) == ["linear.weight", "linear.bias"]:
+        print("Remapping flat legacy CY keys to ModelConnector format...")
+        state_dict = {"classifier." + k: v for k, v in state_dict.items()}
+
     return state_dict
 
 
@@ -170,7 +190,7 @@ def model_by_mode(args: Namespace) -> nn.Module:
         model = ModelXtoY(args)
     elif args.mode == "XC":
         model = ModelXtoC(args)
-    elif args.mode == "CY":
+    elif args.mode == "CY" or args.mode == "C*Y":
         model = ModelCtoY(args)
     else:
         raise ValueError(f"Unknown mode {args.mode}")
@@ -455,14 +475,13 @@ def gather_args():
     base_config = args.get("base_config", None)
     i = 0
     while base_config is not None:
-        if base_config is not None:
-            print(f"Loading base config from '{base_config}'.")
-            with open(base_config) as f:
-                base_args = yaml.safe_load(f)
+        print(f"Loading base config from '{base_config}'.")
+        with open(base_config) as f:
+            base_args = yaml.safe_load(f)
 
-            base_config = base_args.get("base_config", None)
+        base_config = base_args.get("base_config", None)
 
-            args = base_args | args
+        args = base_args | args
 
         if i > 10:
             raise ValueError(
@@ -476,6 +495,11 @@ def gather_args():
         val_metrics = args["val_metric"]
         if isinstance(val_metrics, str):
             args["val_metric"] = [val_metrics]
+
+        # Ensure only valid metrics are provided (🥲)
+        assert all(
+            m in ["class_acc", "attr_acc", "seg_iou", "dist_loc"] for m in args["val_metric"]
+        ), "val_metrics must be chosen from 'class_acc', 'attr_acc', 'seg_iou', or 'dist_loc'"
 
     args = Namespace(**args, config_path=cli_args.config)
 

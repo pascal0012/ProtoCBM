@@ -4,7 +4,7 @@ num_trials: 150
 epochs: 100
 val_metric:
   - concept_acc
-  - loc_dist
+  - dist_loc
 mode: XC
 
 optimize:

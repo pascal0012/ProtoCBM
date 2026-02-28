@@ -1,0 +1,37 @@
+mode: independent
+n_attributes: 112
+
+model_name: cbm
+concept_mapper: cbm
+concept_activation: sigmoid
+
+saliency_method: cam
+IoU_threshold: 0.5
+plot_curve: false
+use_argmax: true
+
+log_dir: outputs/Inspection/CBM-Independent
+data_dir: data/CUB_200_2011
+split_dir: data/CUB_processed/class_attr_data_10/test.pkl
+
+dataset: cub
+vis_every_n: 10
+seed: 1
+
+# Independent CBM checkpoints
+xc_checkpoint: weights/baseline_CUB/independent/best_model_1-xc.pth
+cy_checkpoint: weights/baseline_CUB/independent/best_model_1-cy.pth
+
+# SUB Dataset settings
+sub_data_dir: data/SUB
+sub_limit: null
+
+batch_size: 64
+use_aux: false
+use_sigmoid: false
+
+backbone: inception
+backbone_pretrained: true
+backbone_freeze: false
+expand_dim: 0
+proto_n_vectors: 1

@@ -105,11 +105,14 @@ class ModelConnector(nn.Module):
             if self.mode == "CY":
                 output = output.detach()
 
-            if self.mode == "XCCY" and self.training:
-                # Use ground truth concepts
-                output = self.classifier(attr_labels)
-            else:
-                output = self.classifier(output)
+            if self.mode in ["XCCY", "C*Y"]:
+                # Use ground truth concepts for independent training
+                if self.training:
+                    output = self.classifier(attr_labels)
+                else:
+                    # Apply sigmoid, since the independent classifier expects inputs in [0, 1]
+                    output = F.sigmoid(output)
+                    output = self.classifier(output)
 
         return (output, sim_scores, maps)
 
