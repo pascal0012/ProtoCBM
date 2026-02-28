@@ -115,11 +115,11 @@ def eval(args):
 
             # Calculate attribute accuracy
             attr_acc = binary_accuracy(scores, attr_labels)
-            attr_acc_meter.update(attr_acc, pred.size(0))
+            attr_acc_meter.update(attr_acc, inputs.size(0))
 
             # Calculate attribute cross-entropy
             bce_loss = nn.BCEWithLogitsLoss()(scores, attr_labels.float())
-            attr_ce_meter.update(bce_loss, pred.size(0))
+            attr_ce_meter.update(bce_loss, inputs.size(0))
 
             # Accumulate TP/FP/FN for precision/recall/F1
             attr_preds = (torch.sigmoid(scores) >= 0.5).float()
