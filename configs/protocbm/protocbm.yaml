@@ -6,8 +6,8 @@ concept_activation: none    # "relu" or "sigmoid"
 
 saliency_method: attention
 IoU_threshold: 0.5
-val_metric:   # Options: [class_acc, concept_acc, seg_iou, dist_loc], multiple can be combined.
-  - concept_acc
+val_metric:   # Options: [class_acc, attr_acc, seg_iou, dist_loc], multiple can be combined.
+  - attr_acc
   - class_acc
 
 image_dir: data/CUB_200_2011
