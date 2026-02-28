@@ -70,6 +70,26 @@ def _clean_state_dict(
                 remap[k] = v
         state_dict = remap
 
+    # Remap flat legacy XC-only checkpoint keys → ModelConnector keys
+    # Legacy:  Conv2d_*/Mixed_*/fc.* (flat Inception3), all_fc.* (concept head)
+    # Current: backbone.*, concept_mapper.all_fc.*
+    elif any(k.startswith("all_fc.") for k in state_dict):
+        print("Remapping flat legacy XC keys to ModelConnector format...")
+        remap = {}
+        for k, v in state_dict.items():
+            if k.startswith("all_fc."):
+                remap["concept_mapper." + k] = v
+            else:
+                remap["backbone." + k] = v
+        state_dict = remap
+
+    # Remap flat legacy CY-only checkpoint keys → ModelConnector keys
+    # Legacy:  linear.weight / linear.bias
+    # Current: classifier.linear.weight / classifier.linear.bias
+    elif list(state_dict.keys()) == ["linear.weight", "linear.bias"]:
+        print("Remapping flat legacy CY keys to ModelConnector format...")
+        state_dict = {"classifier." + k: v for k, v in state_dict.items()}
+
     return state_dict
 
 
