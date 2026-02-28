@@ -56,13 +56,17 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=
         elif args.model_name == "cbm":
             from saliency.wrapper import WrapperCUB
             out = model(inputs, attr_labels)
-            class_pred, attributes = out[0], out[1:]
+            is_independent = getattr(args, "mode", None) == "independent"
+            if is_independent:
+                class_pred, attributes = None, out
+            else:
+                class_pred, attributes = out[0], out[1:]
             attributes = torch.stack(attributes, dim=1).detach().squeeze(-1)
 
             # iterate over the attributes and calculate CAMs
             attribute_maps = torch.ones((inputs.shape[0], args.n_attributes, 8, 8))
             for target in range(args.n_attributes):
-                wrapped_model = WrapperCUB(model, out_index=target)
+                wrapped_model = WrapperCUB(model, out_index=target, is_independent=is_independent)
                 current_cam = calculate_cam(wrapped_model, inputs, attr_labels, target=0)
                 attribute_maps[:, target] = current_cam[:, 0, :, :]
 
