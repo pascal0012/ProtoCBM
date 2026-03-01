@@ -113,6 +113,9 @@ class ModelConnector(nn.Module):
                     # Apply sigmoid, since the independent classifier expects inputs in [0, 1]
                     output = F.sigmoid(output)
                     output = self.classifier(output)
+            else:
+                output = self.classifier(output)
+
 
         return (output, sim_scores, maps)
 

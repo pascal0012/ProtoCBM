@@ -228,18 +228,20 @@ def epoch_wrapper(
         for val_metric_str in args.val_metric:
             if val_metric_str == "class_acc":  # --- Class accuracy
                 val_metric += class_acc_meter.avg.squeeze().cpu()
-            if val_metric_str == "concept_acc":  # --- Concept accuracy
+            elif val_metric_str == "attr_acc":  # --- Concept accuracy
                 val_metric += attr_acc_meter.avg.squeeze().cpu()
-            if val_metric_str == "seg_iou":  # --- Segmentation IoU
+            elif val_metric_str == "seg_iou":  # --- Segmentation IoU
                 val_metric += loc_meter.compute(
                     dataloader.dataset.map_attr_id_to_part_seg_group
                 )
-            if val_metric_str == "dist_loc":  # --- Localization distance
+            elif val_metric_str == "dist_loc":  # --- Localization distance
                 val_metric += 0.1 * torch.tensor(
                     -calculate_average_partwise_localization_distance(
                         loc_acc_meter, MAP_RESULT_GROUPS_TO_CUB_GROUPS, verbose=False
                     )[1]
                 )
+            else:
+                print(f"[WARN]: Provided val metric {val_metric_str} unknown!")
 
         tb_writer.add_scalar(
             "Val/Metric",
