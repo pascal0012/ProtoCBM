@@ -766,35 +766,6 @@ def print_results(results):
         print("   - Higher distances = larger changes in model's internal representations")
         print("   - 'Both present/absent': Model predicts both attributes the same way")
 
-    # Per-attribute breakdown
-    print("\n" + "-" * 70)
-    print("PER-ATTRIBUTE BREAKDOWN")
-    print("-" * 70)
-
-    cbm_attr_names = results["cbm_attr_names"]
-    per_new_correct = results["per_attr_new_correct"]
-    per_new_total = results["per_attr_new_total"]
-    per_original_correct = results["per_attr_original_correct"]
-    per_original_total = results["per_attr_original_total"]
-
-    print(f"\n{'Attribute':<45} {'New Det.':<15} {'Orig. Present':<15}")
-    print("-" * 75)
-
-    for cbm_idx in range(N_ATTRIBUTES_CBM):
-        if per_new_total[cbm_idx] > 0:
-            new_acc = 100 * per_new_correct[cbm_idx] / per_new_total[cbm_idx]
-            new_str = f"{new_acc:5.1f}% ({int(per_new_correct[cbm_idx]):4d}/{int(per_new_total[cbm_idx]):4d})"
-
-            if per_original_total[cbm_idx] > 0:
-                # Show complement: how often original is predicted as PRESENT (hallucinated)
-                orig_present = per_original_total[cbm_idx] - per_original_correct[cbm_idx]
-                orig_present_rate = 100 * orig_present / per_original_total[cbm_idx]
-                orig_str = f"{orig_present_rate:5.1f}% ({int(orig_present):4d}/{int(per_original_total[cbm_idx]):4d})"
-            else:
-                orig_str = "N/A"
-
-            print(f"{cbm_attr_names[cbm_idx]:<45} {new_str:<15} {orig_str:<15}")
-
     print("\n" + "=" * 70)
 
 
