@@ -1,0 +1,12 @@
+# C→Y training: Train classifier on frozen concept predictions
+# Requires a pretrained XC checkpoint
+base_config: configs/cbm/cbm.yaml
+
+mode: CY
+log_dir: outputs/CBM-CY
+use_attr: False
+use_aux: false
+backbone_freeze: true
+
+# Pretrained XC checkpoint (backbone + concept mapper weights)
+checkpoint: weights/baseline_CUB/concept-mapper-xc/best_model_1-xc.pth
