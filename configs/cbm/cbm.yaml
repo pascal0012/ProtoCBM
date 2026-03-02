@@ -36,5 +36,4 @@ expand_dim: 0
 # CBM specifics
 normalize_loss: true
 weighted_loss: multiple
-loss_attr_weight: 1.0
 attr_loss_weight: 0.1

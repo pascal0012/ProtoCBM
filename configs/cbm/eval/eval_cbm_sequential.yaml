@@ -9,4 +9,3 @@ xc_checkpoint: weights/baseline_CUB/concept-mapper-xc/best_model_1-xc.pth
 cy_checkpoint: weights/baseline_CUB/sequential/best_model_1-cy.pth
 
 use_sigmoid_logits: true   # apply sigmoid to XC logits before thresholding concept predictions
-proto_n_vectors: 1

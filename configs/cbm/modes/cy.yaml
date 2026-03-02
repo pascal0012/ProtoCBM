@@ -7,6 +7,7 @@ log_dir: outputs/CBM-CY
 use_attr: False
 use_aux: false
 backbone_freeze: true
+lr: 0.001
 
 # Pretrained XC checkpoint (backbone + concept mapper weights)
 checkpoint: weights/baseline_CUB/concept-mapper-xc/best_model_1-xc.pth
