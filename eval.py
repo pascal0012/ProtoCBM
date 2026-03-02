@@ -92,9 +92,14 @@ def eval(args):
             saliency_maps = saliency_maps.to(device)
 
             # Calculate classification accuracy
-            # For independent mode: chain XC concept scores through CY classifier
+            # For independent mode: chain XC concept scores through CY classifier.
+            # use_sigmoid_logits=True (independent): CY was trained on GT binary labels, sigmoid maps logits → [0,1].
+            # use_sigmoid_logits=False (sequential): CY was trained on raw predicted logits, pass them directly.
             if is_independent:
-                concept_scores = torch.sigmoid(scores)
+                if getattr(args, "use_sigmoid_logits", True):
+                    concept_scores = torch.sigmoid(scores)
+                else:
+                    concept_scores = scores
                 class_pred = cy_model.classifier(concept_scores)
             else:
                 class_pred = pred
@@ -186,7 +191,7 @@ def eval(args):
                     batch_idx=batch_idx,
                     source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg, 
                     preds=torch.sigmoid(scores)
-                )
+                )   
 
                 visualize_keypoint_distances(part_gts,
                                              inputs,
