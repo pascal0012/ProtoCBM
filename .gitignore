@@ -19,6 +19,10 @@ uv.lock
 wandb/*
 wandb
 
+# sorry für die unnötigen gitignores
+configs/protocbm/hyperparameter-search/independent-grid/*
+tests/keypoint_flip_vis/*
+
 # gitignore for slurm and claude notes
 *.slurm
 CLAUDE.md

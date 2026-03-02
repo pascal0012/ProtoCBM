@@ -1,0 +1,12 @@
+base_config: configs/cbm/eval/eval_cbm.yaml
+
+mode: independent
+use_argmax: true
+log_dir: outputs/Inspection/CBM-Sequential/seed=1
+
+# Sequential CBM checkpoints (XC shared with independent, CY trained sequentially)
+xc_checkpoint: weights/baseline_CUB/concept-mapper-xc/best_model_1-xc.pth
+cy_checkpoint: weights/baseline_CUB/sequential/best_model_1-cy.pth
+
+use_sigmoid_logits: true   # apply sigmoid to XC logits before thresholding concept predictions
+proto_n_vectors: 1

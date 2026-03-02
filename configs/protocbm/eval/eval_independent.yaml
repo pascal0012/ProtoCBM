@@ -3,7 +3,7 @@ n_attributes: 112
 
 model_name: protocbm
 concept_mapper: protomod
-concept_activation: sigmoid
+concept_activation: none
 
 saliency_method: attention
 IoU_threshold: 0.5
@@ -28,7 +28,7 @@ sub_limit: null
 
 batch_size: 64
 use_aux: false
-use_sigmoid: false
+use_sigmoid_logits: false
 
 backbone: inception
 backbone_pretrained: true

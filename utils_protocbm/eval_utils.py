@@ -201,3 +201,7 @@ def eval_part_segmentation_iou(
         saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group
     )
     return spr, cpr
+
+
+def sub_to_cbm(name):
+    return name.replace('--', '::')

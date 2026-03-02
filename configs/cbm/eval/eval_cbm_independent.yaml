@@ -1,0 +1,10 @@
+base_config: configs/cbm/eval/eval_cbm.yaml
+
+mode: independent
+log_dir: outputs/Inspection/CBM-Independent/seed=1
+
+# Independent CBM checkpoints
+xc_checkpoint: weights/baseline_CUB/concept-mapper-xc/best_model_1-xc.pth
+cy_checkpoint: weights/baseline_CUB/independent-cy/best_model_1-cy.pth
+
+use_sigmoid_logits: false   
