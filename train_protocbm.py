@@ -129,7 +129,7 @@ def epoch_wrapper(
 
             if args.mode == "XC":
                 classification_loss = torch.tensor(0.0, device=device)
-            else:
+            else: # train only C->Y (aux outputs not possible)
                 classification_loss = cross_entropy(outputs, labels)
 
         losses.append(classification_loss)
