@@ -1,5 +1,4 @@
 base_config: configs/cbm/eval/eval_cbm.yaml
 
-use_argmax: true
 log_dir: outputs/Inspection/CBM-Baseline
 checkpoint: weights/baseline_CUB/joint-0.01/best_model_1.pth

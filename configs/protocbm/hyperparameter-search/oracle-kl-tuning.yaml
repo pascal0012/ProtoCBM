@@ -1,0 +1,33 @@
+experiment_name: protocbm_oracle_kl_tuning
+base_config: configs/protocbm/modes/oracle.yaml
+mode: XC
+num_trials: 150
+epochs: 100
+
+val_metric:
+  - attr_acc
+  - dist_loc
+
+optimize:
+  loss_weight_attribute_reg:
+    distribution: loguniform
+    low: 0.1
+    high: 10
+  loss_weight_attribute_decorrelation:
+    distribution: loguniform
+    low: 0.0001
+    high: 1
+  loss_weight_map_compactness:
+    distribution: loguniform
+    low: 0.0001
+    high: 1
+  distance_loss_weight:
+    distribution: loguniform
+    low: 0.1
+    high: 10
+  distance_loss_sigma:
+    distribution: categorical
+    values: [1.0, 1.5, 2.0, 2.5]
+  lr:
+    distribution: categorical
+    values: [0.01, 0.001]
