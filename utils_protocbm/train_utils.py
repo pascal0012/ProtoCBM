@@ -106,7 +106,7 @@ def prepare_model(
     """
     if load_weights:
         path = _resolve_weights_path(args)
-        state_dict = torch.load(path, weights_only=False)
+        state_dict = torch.load(path, weights_only=False, map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
         state_dict = _clean_state_dict(state_dict, args, training)
         model.load_state_dict(state_dict, strict=False)
 

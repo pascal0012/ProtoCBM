@@ -406,12 +406,8 @@ def train(model: ModelConnector, args: Namespace) -> float:
         if epoch % 10 == 0:
             print("Current lr:", scheduler.get_last_lr())
 
-        if epoch >= 100 and val_acc_meter.avg < 3:
-            print("Early stopping because of low accuracy")
-            break
-        
         if epoch - best_val_epoch >= 100:
-            print("Early stopping because acc hasn't improved for a long time")
+            print("Early stopping because val metric hasn't improved for a long time")
             break
 
     # At the end of training:
