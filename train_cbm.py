@@ -1,4 +1,3 @@
-import argparse
 import math
 import os
 import time
@@ -8,7 +7,6 @@ from typing import List, Optional
 
 import numpy as np
 import torch
-import yaml
 from torch import nn
 from tqdm import tqdm
 
@@ -30,9 +28,9 @@ from utils_protocbm.train_utils import (
     accuracy,
     build_attr_criterion,
     compute_attr_accuracy,
+    gather_args,
     logger_and_summarywriter,
     model_by_mode,
-    normalize_scientific_floats,
     optimizer_and_scheduler_by_name,
     prepare_model,
 )
@@ -62,7 +60,6 @@ def compute_auxiliary_losses(
     out_start = 0
 
     if args.mode in ["XY", "XCY"]:
-        # call this when XY or XCY
         loss_class = 1.0 * cross_entropy(outputs[0], labels) + 0.4 * cross_entropy(
             aux_outputs[0], labels
         )
@@ -94,7 +91,7 @@ def compute_standard_losses(
     losses = []
     out_start = 0
 
-    if args.mode in ["XY", "XCY"]:
+    if args.mode in ["XY", "XCY", "CY"]:
         losses.append(criterion(outputs[0], labels))
         out_start = 1
 
@@ -419,20 +416,7 @@ def train(model: ModelConnector, args: Namespace) -> float:
 
 if __name__ == "__main__":
     print("Training CUB model")
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="configs/cbm.yaml",
-        help="Path to config file (YAML)",
-    )
-    cli_args = parser.parse_args()
-
-    with open(cli_args.config) as f:
-        args = yaml.safe_load(f)
-    args = normalize_scientific_floats(args)
-
-    args = argparse.Namespace(**args, config_path=cli_args.config)
+    args = gather_args()
     args.model_name = nanoid.generate()
 
     # Initialize wandb if requested in config and available
