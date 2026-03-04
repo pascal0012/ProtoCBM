@@ -102,7 +102,7 @@ class ModelConnector(nn.Module):
 
         # C -> Y, if we have a classifier
         if self.classifier is not None:
-            if self.mode == "CY":
+            if self.mode in ["CY", "C*Y"]:
                 output = output.detach()
 
             if self.mode in ["XCCY", "C*Y"]:

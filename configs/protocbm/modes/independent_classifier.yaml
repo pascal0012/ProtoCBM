@@ -1,7 +1,9 @@
 base_config: configs/protocbm/protocbm.yaml
 mode: C*Y
 log_dir: outputs/protocbm/independent_classifier
+checkpoint: seq_xc.pth
 
+use_aux: false
 val_metric: class_acc
 
 # --- TO BE UPDATED ---

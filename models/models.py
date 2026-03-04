@@ -44,9 +44,6 @@ def ModelCtoY(args: Namespace):
     backbone = backbone_by_name(args)
 
     concept_mapper = concept_mapper_by_name(args, backbone.final_channel_dim)
-    # For C->Y we do not optimize the concept mapper
-    for _, param in list(concept_mapper.named_parameters()) + list(backbone.named_parameters()):
-        param.requires_grad = False
 
     # The auxiliary logits need a separate concept mapper, as they are of different channel dimensionality + feature map shape
     concept_mapper_aux = None
@@ -54,6 +51,18 @@ def ModelCtoY(args: Namespace):
         concept_mapper_aux = concept_mapper_by_name(
             args, backbone.aux_final_channel_dim, is_aux=True
         )
+
+    aux_params = (
+        list(concept_mapper_aux.parameters()) if concept_mapper_aux is not None else []
+    )
+
+    # For C->Y we do not optimize the concept mapper
+    for _, param in (
+        list(concept_mapper.named_parameters())
+        + aux_params
+        + list(backbone.named_parameters())
+    ):
+        param.requires_grad = False
 
     classifier = MLP(
         input_dim=args.n_attributes,
@@ -120,7 +129,7 @@ def backbone_by_name(args: Namespace) -> Inception3:
             args.expand_dim,
             args.backbone_pretrained,
             args.backbone_freeze,
-            299
+            299,
         )
     if "dino" in args.backbone:
         return DINO(
@@ -134,7 +143,9 @@ def backbone_by_name(args: Namespace) -> Inception3:
         raise ValueError(f"Unknown backbone name: {args.backbone}")
 
 
-def concept_mapper_by_name(args: Namespace, input_channel_dim: int, is_aux: bool = False) -> nn.Module:
+def concept_mapper_by_name(
+    args: Namespace, input_channel_dim: int, is_aux: bool = False
+) -> nn.Module:
     if args.concept_mapper == "protomod":
         return ProtoMod(channel_dim=input_channel_dim, num_vectors=args.proto_n_vectors)
     elif args.concept_mapper == "cbm":
