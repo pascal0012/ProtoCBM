@@ -52,16 +52,12 @@ def ModelCtoY(args: Namespace):
             args, backbone.aux_final_channel_dim, is_aux=True
         )
 
-    aux_params = (
-        list(concept_mapper_aux.parameters()) if concept_mapper_aux is not None else []
-    )
+    # For C->Y we do not optimize the backbone and concept mapper
+    params = list(concept_mapper.parameters()) + list(backbone.parameters())
+    if concept_mapper_aux is not None:
+        params += list(concept_mapper_aux.parameters())
 
-    # For C->Y we do not optimize the concept mapper
-    for _, param in (
-        list(concept_mapper.named_parameters())
-        + aux_params
-        + list(backbone.named_parameters())
-    ):
+    for _, param in params:
         param.requires_grad = False
 
     classifier = MLP(
