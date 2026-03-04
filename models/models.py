@@ -57,7 +57,7 @@ def ModelCtoY(args: Namespace):
     if concept_mapper_aux is not None:
         params += list(concept_mapper_aux.parameters())
 
-    for _, param in params:
+    for param in params:
         param.requires_grad = False
 
     classifier = MLP(
