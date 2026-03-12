@@ -38,7 +38,7 @@ class WrapperProtoCBM(nn.Module):
         self.model = model
         self.attr_labels = attr_labels
 
-    def forward(self, x):
+    def forward(self, x, attr_labels=None):
         cls, attr, aux = self.model(x, self.attr_labels)
 
         out = attr

@@ -48,7 +48,7 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=
 
             attribute_maps = torch.ones((inputs.shape[0], args.n_attributes, 8, 8))
             for target in range(args.n_attributes):
-                current_cam = calculate_cam(wrapped_model, inputs, target=target)
+                current_cam = calculate_cam(wrapped_model, inputs, attr_labels, target=target)
                 attribute_maps[:, target] = current_cam[:, 0, :, :]
 
             return preds, similarity_scores, attribute_maps
