@@ -1,26 +1,27 @@
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from PIL import Image, ImageDraw, ImageFont
-
-import numpy as np
 import os
 import random
+
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 import torch
 import torch.nn.functional as F
 
 
 def visualize_keypoints_to_figure(
-    imgs,
-    part_gts,
-    attention_maps,
-    similarity_scores,
-    part_dict,
-    part_attribute_mapping,
-    img_size,
-    t_mean=(0.5, 0.5, 0.5),
-    t_std=(2, 2, 2),
-):
+    imgs:torch.Tensor,
+    part_gts:torch.Tensor,
+    attention_maps:torch.Tensor,
+    similarity_scores:torch.Tensor,
+    part_dict: dict,
+    part_attribute_mapping: dict,
+    img_size: int,
+    t_mean: tuple=(0.5, 0.5, 0.5),
+    t_std: tuple=(2, 2, 2),
+) -> plt.Figure:
     """
     Visualize GT vs predicted keypoints for a batch of images.
     Predicted keypoints are derived from attention maps using per-part argmax.
@@ -107,37 +108,41 @@ def visualize_keypoints_to_figure(
     return fig
 
 
-def visualize_keypoint_distances(gts,
-                                imgs,
-                                img_paths, 
-                                preds, 
-                                dists, 
-                                batch_nr,
-                                part_names,
-                                batch_idx=None,
-                                t_mean=(0.5, 0.5, 0.5),
-                                t_std=(2, 2, 2),
+def visualize_keypoint_distances(gts: torch.Tensor,
+                                imgs:torch.Tensor | np.ndarray,
+                                preds:torch.Tensor,
+                                dists:torch.Tensor,
+                                batch_nr:int,
+                                part_names:list,
+                                batch_idx:int =None,
+                                t_mean:tuple =(0.5, 0.5, 0.5),
+                                t_std:tuple =(2, 2, 2),
                                 save_path=""):
     """
-    gt:   torch.Tensor (15,2)   -> ground truth xy
-    pred: torch.Tensor (15,2)   -> predicted xy
-    image: numpy or torch image HxWx3
-    names: list of 15 strings
-    scores: list or tensor of 15 floats
+    Visualize Distance predictions on sampled image for a batch, used for eval.
+
+    gt (torch.Tensor): (B,15,2), ground truth xy of parts
+    imgs: numpy or torch image [B,H,W,3]  original images
+    pred (torch.Tensor): (B,15,2), predicted xy of parts
+    dists (torch.Tensor): (B,15), distances for each part prediction vs GT
+    batch_nr (int): the batch number we are looking at
+    part_names (list[str]): list of part names for the 15 CUB parts, in order of the tensors
+    batch_idx (int or None): if int, the index in the batch to visualize, if None then randomly sample one from the batch
+    t_mean (tuple): the mean and std used for normalizing the images
+    save_path (str): where to save the visualizations
     """
 
-    B, C, H, W = imgs.shape
     # Sample random batches / attributes if none are provided
     if batch_idx is None:
+        B, _, _, _ = imgs.shape
         batch_idx = random.randint(0, B-1)
-    n_parts = gts.shape[1]
 
+    #sample
     gt = gts[batch_idx]
     img = imgs[batch_idx]
-    img_path = img_paths[batch_idx]
+    
     pred = preds[batch_idx]
     dists = dists[batch_idx]
-    #gts = part_gts[batch_idx]
 
     # Convert tensors to numpy
     gt_np = gt.cpu().numpy()
@@ -149,7 +154,7 @@ def visualize_keypoint_distances(gts,
     img_np = np.clip(img_np, 0, 1)
 
     # Make 15 subplots
-    fig, axes = plt.subplots(3, 5, figsize=(20, 10))
+    _, axes = plt.subplots(3, 5, figsize=(20, 10))
     axes = axes.flatten()
 
     for i in range(15):
@@ -160,6 +165,7 @@ def visualize_keypoint_distances(gts,
         gx, gy = gt_np[i]
         px, py = pred_np[i]
 
+        #skip nonexistent parts
         if gx == 0 and gy == 0:
             ax.set_title(f"{part_names[i]}\ndist: {dists_np[i]:.1f}")
             continue
@@ -181,10 +187,18 @@ def visualize_keypoint_distances(gts,
 
 
 
-def plot_threshold_curve(thresholds, accs, save_path="", label_area=True):
-    #print(save_path)
-    #print(thresholds)
-    #print(accs)
+def plot_threshold_curve(thresholds:np.ndarray, 
+                         accs: list, 
+                         save_path:str =""):
+    """Make threshold-mIoU curve and calculate AUC
+
+    Args:
+        thresholds (np.array[float]): threshold value for curve
+        accs (list[float]): accuracies at threshold values
+        save_path (str, optional): Save path for ROC figure. Defaults to "".
+    """
+
+    #conversion
     thresholds = np.array(thresholds)
     accuracies = np.array(accs)
 
@@ -208,44 +222,49 @@ def plot_threshold_curve(thresholds, accs, save_path="", label_area=True):
     )
 
     plt.grid(True)
-
     plt.savefig(os.path.join(save_path, "mIoU_threshold_curve.png"), bbox_inches='tight')
 
 
 
 def create_attribute_mosaic(
-    images,             # torch tensor, shape (I, C, H, W)
-    heatmaps,           # torch tensor, shape (I, A, H, W)
-    attribute_names,    # list of strings, len A
-    scores,             # numpy or torch, shape (I, A)
-    alpha=0.5,
-    resize_to=None,
-    font_path=None,
-    font_size=20,
-    header_height=40,
-    score_height=30,
+    images: torch.Tensor,
+    heatmaps: torch.Tensor,
+    attribute_names: list,
+    scores: np.ndarray | torch.Tensor,
+    alpha:float =0.5,
+    resize_to:tuple =None,
+    font_path:str=None,
+    font_size:int=20,
+    header_height:int=40,
+    score_height:int=30,
 ):
+    """This method takes a batch of images, corresponding heatmaps and scores, and creates a large mosaic
+    visualizing the heatmaps overlaid on the images, with attribute names as column headers and scores below each image.
 
-    # -------------------------
-    # Validate inputs
-    # -------------------------
-    I, C, H, W = images.shape
+    Args:
+        images (torch.Tensor[float]): original images, shape (B, C, H, W)
+        heatmaps (torch.Tensor[float]): heatmaps to overlay, shape (B, A, H_hm, W_hm)
+        attribute_names (list[str]): list of attribute names, length A
+        scores (np.ndarray[float] | torch.Tensor[float]): attribute scores for each image, shape (B, A)
+        alpha (float, optional): transparency for heatmap overlay. Defaults to 0.5.
+        resize_to (tuple, optional): target resize dimensions. Defaults to None.
+        font_path (str, optional): path to font file. Defaults to None.
+        font_size (int, optional): size of font. Defaults to 20.
+        header_height (int, optional): height of attribute name headers. Defaults to 40.
+        score_height (int, optional): height of score displays. Defaults to 30.
+    """
+
+    I, _, H, W = images.shape
     _, A, H_hm, W_hm = heatmaps.shape
 
-    # If images are not in [0,1], normalize?
-    # We'll assume they are already suitable for visualization.
-
-    # -------------------------
     # Load font
-    # -------------------------
     try:
         font = ImageFont.truetype(font_path, font_size) if font_path else ImageFont.load_default()
     except:
         font = ImageFont.load_default()
 
-    # -------------------------
-    # Resize heatmaps to match image resolution
-    # -------------------------
+
+    # Resize heatmaps to match image resolution if needed
     if (H_hm != H) or (W_hm != W):
         heatmaps = F.interpolate(
             heatmaps,
@@ -254,14 +273,10 @@ def create_attribute_mosaic(
             align_corners=False
         )
 
-    # -------------------------
-    # Convert images to PIL
-    # -------------------------
+    # Convert to PIL
     proc_images = [tensor_to_pil(images[i]) for i in range(I)]
 
-    # -------------------------
-    # Resize images & heatmaps if requested
-    # -------------------------
+    # Resize if given
     if resize_to is not None:
         new_w, new_h = resize_to
         proc_images = [img.resize((new_w, new_h), Image.LANCZOS) for img in proc_images]
@@ -274,9 +289,7 @@ def create_attribute_mosaic(
         )
         H, W = new_h, new_w
 
-    # -------------------------
     # Prepare output mosaic canvas
-    # -------------------------
     cell_w, cell_h = W, H
     mosaic_w = A * cell_w
     mosaic_h = I * (cell_h + score_height) + header_height
@@ -284,9 +297,7 @@ def create_attribute_mosaic(
     mosaic = Image.new("RGB", (mosaic_w, mosaic_h), "white")
     draw = ImageDraw.Draw(mosaic)
 
-    # -------------------------
     # Draw attribute column headers
-    # -------------------------
     for a, name in enumerate(attribute_names):
         x_center = a * cell_w + cell_w // 2
         y_center = header_height // 2
@@ -302,9 +313,7 @@ def create_attribute_mosaic(
             font=font
         )
 
-    # -------------------------
-    # Draw each cell (image + heatmap + score)
-    # -------------------------
+    # draw cells
     heatmaps_np = heatmaps.detach().cpu().numpy()
 
     if isinstance(scores, torch.Tensor):
@@ -341,7 +350,7 @@ def create_attribute_mosaic(
 
 
 
-def plt_colormap(x):
+def plt_colormap(x: np.ndarray[float]) -> np.ndarray[float]:
     """Simple jet-like colormap for heatmaps."""
     x = np.clip(x, 0, 1)
     r = np.clip(1.5 - np.abs(4 * x - 3), 0, 1)
@@ -350,7 +359,7 @@ def plt_colormap(x):
     return np.stack([r, g, b], axis=-1).astype(np.float32)
 
 
-def tensor_to_pil(img_tensor):
+def tensor_to_pil(img_tensor:torch.Tensor) -> Image.Image:
     """
     Convert torch tensor (C, H, W) in [0,1] (or [0,255]) to PIL.Image.
     Supports 1-channel or 3-channel.
@@ -369,6 +378,7 @@ def tensor_to_pil(img_tensor):
     return Image.fromarray(img_np)
 
 
+#------------- KANN WEG -------------
 def visualise_localization_acc_boxes(
     imgs,
     img_paths,
@@ -498,12 +508,12 @@ def visualise_localization_acc_boxes(
 
 
 def visualise_part_segmentations(
-    imgs,
-    saliency_maps,
-    seg_masks,
-    attribute_names,
-    iou_scores,
-    source_paths=None,
+    imgs:torch.Tensor,
+    saliency_maps:torch.Tensor,
+    seg_masks:torch.Tensor,
+    attribute_names:list[str],
+    iou_scores:torch.Tensor,
+    source_paths:list[str]=None,
     attributes=100,
     batch_idx=None,
     t_mean=(0.5, 0.5, 0.5),
@@ -512,21 +522,22 @@ def visualise_part_segmentations(
     preds=None
 ):
     """
-        imgs: torch.Tensor of [B, C, H, W] the respective images
-        saliency_maps: torch.Tensor of [B, A, H, W] of the saliency maps matched to the segmentation mask shape, per attribute A
-        seg_masks: torch.Tensor of [B, A, H, W] the segmentation masks, per attribute A
-        attribute_names: List of [A], giving each attribute its name
-        iou_scores: The IoU scores for each img, per attribute [B, A]
-        source_paths: The paths to the image sources, will be rendered into the image if given
-        attributes: Either a list of attributes that are to be visualized, or a number of how many random attributes to sample.
-        batch_idx: The index in the batch from which we extract images, defaults to random one
-        t_mean: The mean applied during preprocessing of the image
-        t_std: The std applied during preprocessing of the image
-        save_path: Path where to save the visualizations
-        pred_mask: optinal mask with attribute predictions, if given then only plot the ones where we predict an attribute to be present
+        imgs(torch.Tensor): [B, C, H, W] the respective images
+        saliency_maps(torch.Tensor): [B, A, H, W] of the saliency maps matched to the segmentation mask shape, per attribute A
+        seg_masks(torch.Tensor): [B, A, H, W] the segmentation masks, per attribute A
+        attribute_names(list[str]): List of [A], giving each attribute its name
+        iou_scores(torch.Tensor): The IoU scores for each img, per attribute [B, A]
+        source_paths(list[str]): The paths to the image sources, will be rendered into the image if given
+        attributes(int or list[int]): Either a list of attributes that are to be visualized, or a number of how many random attributes to sample.
+        batch_idx(int): The index in the batch from which we extract images, defaults to random one
+        t_mean(tuple): The mean applied during preprocessing of the image
+        t_std(tuple): The std applied during preprocessing of the image
+        save_path(str): Path where to save the visualizations
+        pred_mask(torch.Tensor): Optional mask with attribute predictions, if given then only plot the ones where we predict an attribute to be present
     """
 
-    B, A, H, W = saliency_maps.shape
+    B, A, _, _ = saliency_maps.shape
+
     # Sample random batches / attributes if none are provided
     if batch_idx is None:
         batch_idx = random.randint(0, B-1)
@@ -534,11 +545,13 @@ def visualise_part_segmentations(
         attributes = random.sample(range(A), attributes)
     n_attributes = len(attributes)
 
+    #mask out attributes predicted as absent if preds are given
     pred_mask = None
     if preds is not None:
         preds = preds[batch_idx][attributes]
         pred_mask = (preds >= 0.5).float()
 
+    #sample
     img = imgs[batch_idx]
     masks = saliency_maps[batch_idx][attributes]
     seg_masks = seg_masks[batch_idx][attributes]
@@ -570,9 +583,9 @@ def visualise_part_segmentations(
         n_plot_attributes = n_attributes
 
 
-    fig, axes = plt.subplots(2, n_plot_attributes, figsize=(2*n_plot_attributes, 5))
+    _, axes = plt.subplots(2, n_plot_attributes, figsize=(2*n_plot_attributes, 5))
 
-
+    #iterate only over attributes that we want to keep for the plot
     i = 0
     for col in range(n_attributes):
 
@@ -599,9 +612,6 @@ def visualise_part_segmentations(
     axes[0, 0].set_ylabel("ProtoNet Map")
     axes[1, 0].set_ylabel("Part Segmentation")
 
-    # Create string for this img
-    attr_str = "_".join([str(a) for a in attributes])
     plt.tight_layout()
-    #plt.savefig(os.path.join(save_path, f"{img_name}_attr{attr_str}.png"), dpi=200, bbox_inches='tight')
     plt.savefig(os.path.join(save_path, f"{img_name}_attr.png"), dpi=200, bbox_inches='tight')
     plt.close()

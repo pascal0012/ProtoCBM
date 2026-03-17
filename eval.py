@@ -1,7 +1,3 @@
-"""
-Evaluate trained models on the official CUB test set
-"""
-
 import os
 import sys
 import torch
@@ -11,8 +7,7 @@ import numpy as np
 
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics
 from localization.visualise import (
-    visualise_part_segmentations, 
-    visualise_localization_acc_boxes, 
+    visualise_part_segmentations,
     plot_threshold_curve,
     visualize_keypoint_distances
 )
@@ -28,7 +23,7 @@ from utils_protocbm.train_utils import AverageMeter, accuracy, binary_accuracy, 
 
 def eval(args):
     """
-        TODO
+        Evaluate models on various datasets, computes accuracy, localization metric, ROC curve and plots visualizations.
     """
 
     # Set random seeds for reproducibility
@@ -37,6 +32,7 @@ def eval(args):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(42)
 
+    #whether training mode is independent
     is_independent = getattr(args, "mode", None) == "independent"
 
     # Create the model(s) and load weights
@@ -185,6 +181,7 @@ def eval(args):
                 # Always visualize the first image in each batch for consistency
                 batch_idx = 0
 
+                #area-based localization viz
                 visualise_part_segmentations(
                     inputs, saliency_maps_upsampled, seg_masks_per_attribute,
                     attribute_names, iou_scores,
@@ -192,10 +189,10 @@ def eval(args):
                     source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg, 
                     preds=torch.sigmoid(scores)
                 )   
-
+                #distance-based localization viz
                 visualize_keypoint_distances(part_gts,
                                              inputs,
-                                             source_paths,
+                                             #source_paths,
                                              predicted_coords,
                                              dists,
                                              data_idx,
