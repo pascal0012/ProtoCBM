@@ -1,4 +1,3 @@
-#code from the APN github: https://github.com/wenjiaXu/APN-ZSL/blob/master/model/main_utils.py#L295
 from typing import Dict, List
 import numpy as np
 import torch
@@ -15,7 +14,23 @@ def compute_localization_distance(
     part_attribute_mapping_tensor: Dict[str, torch.IntTensor], 
     collector_list: List[Dict[str, float]],
     img_size: int = 299,
-    use_argmax=False):
+    use_argmax:bool =False) -> tuple:
+    """Wrapper method for localization distance computation. can be done with taking argmax scores per group and without.
+
+    Args:
+        pre_attri (torch.FloatTensor): Attribute activation scores, shape [B, A]
+        attention (torch.FloatTensor): Attention/localization maps for each attribute, shape [B, A, H, W]
+        bounding_box_per_part (torch.IntTensor): bounding box coordinates for each part, shape [B, K, 4]
+        part_gts (torch.IntTensor): ground truth coordinates for each part, shape [B, K, 2]
+        part_dict (Dict[str, int]): mapping from part names to indices
+        part_attribute_mapping_tensor (Dict[str, torch.IntTensor]): mapping from part names to attribute indices
+        collector_list (List[Dict[str, float]]): list of dictionaries to collect results
+        img_size (int, optional): size to resize heatmaps to. Defaults to 299.
+        use_argmax (bool, optional): whether to use argmax over attributes. Defaults to False.
+
+    Returns:
+        tuple: Predicted coordinates per attribute, distances from GT, resized localiation maps and max attribute scores per part 
+    """
 
     if use_argmax:
         return compute_localization_distance_with_argmaxing(
@@ -32,7 +47,6 @@ def compute_localization_distance(
         return compute_localization_distance_without_argmaxing(
             pre_attri,
             attention,
-            bounding_box_per_part,
             part_gts,
             part_dict,
             part_attribute_mapping_tensor, 
@@ -44,18 +58,20 @@ def compute_localization_distance(
 def compute_localization_distance_without_argmaxing(
     pre_attri: torch.FloatTensor,
     attention: torch.FloatTensor,
-    bounding_box_per_part: torch.IntTensor,
     part_gts: torch.IntTensor,
     part_dict: Dict[str, int],
     part_attribute_mapping_tensor: Dict[str, torch.IntTensor],
     collector_list: List[Dict[str, float]],
     img_size: int = 299,
-    attr_thresh = 0.5
-):
+    attr_thresh:float = 0.5
+) -> tuple:
     """
     Computes localization distance per part without using argmax over attributes.
     Instead, computes predicted coordinates for every attribute, then aggregates
     distances for attributes belonging to each part.
+
+    Args:
+        see compute_localization_distance
 
     Returns:
         predicted_coords_attr: [B, A, 2]
@@ -64,14 +80,14 @@ def compute_localization_distance_without_argmaxing(
         aggregated_scores:    [B, K] (max activation per part group)
     """
 
-    B, A, H_att, W_att = attention.shape
+    B, A, _, _ = attention.shape
 
     # Resize heatmaps to image size
     resized_heatmaps = torch.nn.functional.interpolate(
         attention, size=img_size, mode='bilinear', align_corners=False
     )  # [B, A, img, img]
 
-    # ---- 1) Compute predicted coordinates for EVERY ATTRIBUTE -------------
+    # compute predicted coordinates for every attribute
     B, A, H, W = resized_heatmaps.shape
     flat = resized_heatmaps.view(B, A, -1)
 
@@ -81,12 +97,12 @@ def compute_localization_distance_without_argmaxing(
     x_attr = max_idx % W
     predicted_coords_attr = torch.stack((x_attr, y_attr), dim=2)  # [B, A, 2]
 
-    # ---- 2) Compute distance for EVERY ATTRIBUTE to its part GT -----------
+    # compute distance for every attribute to its part GT 
     # part_gts is [B, K, 2]. We need each attribute to know which part it belongs to.
-    #
+
     # Create lookup table attr -> part index
     attr_to_part = torch.full((A,), -1, dtype=torch.long)
-    for part_idx, (part_id, part_name) in enumerate(part_dict.items()):
+    for part_idx, (_, part_name) in enumerate(part_dict.items()):
         attrs = part_attribute_mapping_tensor[part_name]
         attr_to_part[attrs] = part_idx
 
@@ -102,19 +118,19 @@ def compute_localization_distance_without_argmaxing(
         diff = part_gts[:, part_idx, :].float() - predicted_coords_attr[:, a, :].float()
         dist_attr[:, a] = torch.norm(diff, dim=1)
 
-    # ---- 3) Aggregate per part -------------------------------------------
+    # aggregate per part
     K = len(part_dict)
     dist_per_part = torch.zeros(B, K, device=attention.device)
     aggregated_scores = torch.zeros(B, K, device=attention.device)
 
-    for part_idx, (part_id, part_name) in enumerate(part_dict.items()):
+    for part_idx, (_, part_name) in enumerate(part_dict.items()):
         attrs = part_attribute_mapping_tensor[part_name]
         #threshold attribute activations and select indices based on that
         above_threshold = (pre_attri[:, attrs] > attr_thresh).any(dim=0)
 
         attrs = attrs[above_threshold]
 
-        #if nothing left it sucks, skip for now
+        #if nothing, skip
         if attrs.numel() == 0:
             continue
 
@@ -128,11 +144,11 @@ def compute_localization_distance_without_argmaxing(
         # aggregate scores (e.g., max activation)
         aggregated_scores[:, part_idx] = pre_attri[:, attrs].max(dim=1).values
 
-    # ---- 4) Set distances to -1 for parts not present ---------------------
+    # set distances to -1 for parts not present 
     valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
     dist_per_part[~valid_mask] = -1
 
-    # ---- 5) Collect results -----------------------------------------------
+    # collect results
     for i in range(B):
         sub_res = dict(zip(list(part_dict.values()), dist_per_part[i].tolist()))
         collector_list.append(sub_res)
@@ -149,27 +165,22 @@ def compute_localization_distance_with_argmaxing(
     part_attribute_mapping_tensor: Dict[str, torch.IntTensor], 
     collector_list: List[Dict[str, float]],
     img_size: int = 299,
-):
+) -> tuple:
     """
-        Args:
-            pre_attri: activations for each attribute in the model
-            attention: heatmaps/saliency maps per attribute, shape [B, A, H, W]
-            part_bounding_boxes: The bounding box per part, for each image, as given by its coordinates [B, K, 4]
-            part_dict: Mapping from part segmentation groups to CUB original parts
-            part_attribute_mapping: Mapping from CUB parts to relative attribute IDs. Amount of IDs should be A.
-            collector_list: List to collect the mIoU results into.
-            img_size: The image size.
-        
-        Returns:
-            TODO
+    Computes localization distance per part with using argmax over attribute groups.
+
+    Args:
+        see compute_localization_distance
+
+    Returns:
+        predicted_coords_attr: [B, A, 2]
+        dist_per_part:        [B, K]
+        resized_heatmaps:     [B, A, H', W']
+        aggregated_scores:    [B, K] (max activation per part group)
     """
-    # part_attribute_mapping means a dict that maps from a part (CUB/parts/parts.txt) to a list of attribute IDs
-    # sum of all attribute IDs must not be more that number of attention maps returned/attributes used by model. also is
-    # required to be 0 indexed and correctly match the attribute order in the model
-    #reimplementation of paper description
 
     #get argmax attribute per part
-    # Per part k \in K, get the argmax index (attribute idx that had the highest activation for that part) for each img in the batch
+    # Per part, get the argmax index (attribute idx that had the highest activation for that part) for each img in the batch
     argmax_per_part = [] # max index per part, -1 if part not present
     max_scores_per_part = []
     for part in part_dict.values():
@@ -178,13 +189,13 @@ def compute_localization_distance_with_argmaxing(
         
         argmax_in_subset = subset.argmax(dim=1)
         result = part_attribute_mapping_tensor[part][argmax_in_subset] #now res should be batchsize shape
-        
+        #save result
         argmax_per_part.append(result)
-
+        #same for score
         max_score = pre_attri[torch.arange(pre_attri.shape[0]), result]  # [batch_size]
         max_scores_per_part.append(max_score)
         
-
+    #regroup
     max_scores_per_part = torch.stack(max_scores_per_part).t()
 
     # Create a mask to track which part bounding boxes are non-empty
@@ -193,8 +204,7 @@ def compute_localization_distance_with_argmaxing(
     #part is [0, 0] if it doesnt exist
     valid_mask = (part_gts.sum(dim=-1) != 0)  # [B, K]
 
-    # Take heatmaps: For each part, get the heatmap of the attribute belonging to that part that had the highest activation
-    # TODO: Check this if this is correct! Maybe need torch.gather
+    # for each part, get the heatmap of the attribute belonging to that part that had the highest activation
     idx = torch.stack(tuple(argmax_per_part)).to(attention.device) # [K, B]
     idx = idx.t()  # [B, K]
     batch_indices = torch.arange(attention.shape[0]).unsqueeze(1)
@@ -213,6 +223,7 @@ def compute_localization_distance_with_argmaxing(
     x = max_idx % W
 
     predicted_coords = torch.stack((x, y), dim=2)
+    #sanity check
     assert predicted_coords.shape == part_gts.shape
     
 
@@ -231,10 +242,17 @@ def compute_localization_distance_with_argmaxing(
     
 
 
+def calculate_average_partwise_localization_distance(all_distances:list[dict], subgroup_mapping:dict, verbose=True) -> tuple:
+    """Calculates average localization distance per part group and overall mean distance across all parts.
 
-def calculate_average_partwise_localization_distance(all_distances:list[dict], subgroup_mapping:dict, verbose=True):
-    #compute acc with ious and threshold for all images per part
-    #all ious = list with each item having a matching from part to iou
+    Args:
+        all_distances (list[dict]): List of dictionaries containing localization distances per part for each image. Each dictionary should have part names as keys and their corresponding distances as values.
+        subgroup_mapping (dict): A dictionary mapping merged part names to lists of individual part names.
+        verbose (bool, optional): Whether to print output. Defaults to True.
+
+    Returns:
+        tuple: returns result mapping for parts and overall mean distance
+    """
 
     #preprocessing, merge groups that belong together and take the max iou value
     processed_distances = []
@@ -264,13 +282,11 @@ def calculate_average_partwise_localization_distance(all_distances:list[dict], s
                 continue
             collect[part].append(value) #binary results for acc
 
-    #divide sum by amount
-
     res = {}
     for part, collected_dists in collect.items():
         res[part] = sum(collected_dists)/len(collected_dists) if len(collected_dists) != 0 else -1
 
-
+    #calculate mean dist over all parts
     mean_dist = [x for _, x in res.items() if x != -1]
     mean_dist = sum(mean_dist)/len(mean_dist)
 
