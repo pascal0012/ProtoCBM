@@ -1,5 +1,5 @@
 # ProtoCBM
-This is the codebase for the project seminar "Project Lab Multimodal Artificial Intelligence" at the technical University Darmstad. 
+This is the codebase for the project seminar "Project Lab Multimodal Artificial Intelligence" at the technical University Darmstadt. 
 
 ## Getting Started
 The environment can be installed using the following command.
