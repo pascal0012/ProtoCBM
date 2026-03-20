@@ -1,5 +1,5 @@
 # ProtoCBM
-This is the codebase for the project seminar "Project Lab Multimodal Artificial Intelligence" at the technical University Darmstadt. 
+This is the codebase for group 8 of the project seminar "Project Lab Multimodal Artificial Intelligence" at the technical University Darmstadt. 
 
 ## Getting Started
 The environment can be installed using the following command.
@@ -32,7 +32,7 @@ For the evaluation we use the part annotations introduced in [[3]](#3).
 wget https://github.com/hamedbehzadi/CUB70-PartSegmentationDataset/raw/main/AnnotationMasksPerclass.tar.xz
 ```
 
-After downloading the files shoul be extracted to CUB data directory in the part_segmentation folder.
+After downloading the files should be extracted to CUB data directory in the part_segmentation folder.
 
 ```
 mkdir -p data/CUB_200_2011/part_segmentations/ &&
@@ -64,7 +64,7 @@ save_majority_csv: false        # Save majority-voted attributes to CSV
 
 ## Train the Model
 
-The repository contains trainings scripts for two distinct models. Namely the `CBM` and the `ProtoCBM` models. For trainings these models we need the respective script `train_protocbm.py` or `train_cbm.py` and the correct config file.
+The repository contains trainings scripts for two distinct models. Namely the `CBM` and the `ProtoCBM` models. For trainings these models we need the respective script `train_protocbm.py` or `train_cbm.py` and the according config file.
 
 ### Training with Distance Loss
 
