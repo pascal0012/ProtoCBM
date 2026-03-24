@@ -1,5 +1,5 @@
 # ProtoCBM
-This is the codebase for group 8 of the project seminar "Project Lab Multimodal Artificial Intelligence" at the technical University Darmstadt. 
+This is the codebase for group 8 of the project seminar "Project Lab Multimodal Artificial Intelligence" at the Technical University Darmstadt. 
 
 ## Method
 We modify Concept Bottleneck Models [[2]](#2) to utilize prototype learning for mapping images into concept space. We call our approach ProtoCBM. Below is an overview figure of our approach, further details can be found in our [report](https://sharelatex.tu-darmstadt.de/read/wkwkbygzqnbk#01f1a7).
