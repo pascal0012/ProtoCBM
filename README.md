@@ -48,15 +48,16 @@ mkdir -p data/CUB_200_2011/part_segmentations/ &&
 tar -xJf AnnotationMasksPerclass.tar.xz -C data/CUB_200_2011/part_segmentations/
 ```
 
-The Waterbirds benchmark for evaluation can be found at: ```https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz```
-
-#### Out of Distribution Data (SUB Benchmark)
+#### Out of Distribution Data (SUB and Waterbirds Benchmark)
 
 In order to evaluate the concept accuracy of our model we further test it on the SUB Benchmark [[4]](#4). The SUB dataset contains synthetic images of birds with substituted visual attributes (e.g. a bird whose breast color has been changed from white to red). This tests whether concept-based models can detect attribute changes rather than simply memorizing class-attribute associations.
 
 The dataset is hosted on HuggingFace: https://huggingface.co/datasets/Jessica-bader/SUB
 
 It will be **downloaded automatically** the first time you run a SUB evaluation script and saved locally to `data/SUB/`. To use a pre-downloaded copy, set the `sub_data_dir` config parameter.
+
+For testing spurious correaltions we also evaluate on the Waterbirds [[5]](#5) dataset.
+The Waterbirds benchmark can be found at: ```https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz```
 
 ##### Config Setup
 
@@ -131,3 +132,5 @@ Wah, C., Branson, S., Welinder, P., Perona, P., & Belongie, S. (2011). The calte
 <a id="3">[3]</a> Behzadi-Khormouji, H., & Oramas, J. (2023). A protocol for evaluating model interpretation methods from visual explanations. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (pp. 1421-1429).
 
 <a id="4">[4]</a> Bader, J., Girrbach, L., Alaniz, S., & Akata, Z. (2025). Sub: Benchmarking cbm generalization via synthetic attribute substitutions. In Proceedings of the IEEE/CVF International Conference on Computer Vision (pp. 23188-23198).
+
+<a id="5">[5]</a> Sagawa, S., Koh, P., Hashimoto, T., & Liang, P. (2020).  Distributionally robust neural networks. In nternational Conference on Learning Representations.
