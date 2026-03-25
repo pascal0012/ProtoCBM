@@ -48,7 +48,7 @@ mkdir -p data/CUB_200_2011/part_segmentations/ &&
 tar -xJf AnnotationMasksPerclass.tar.xz -C data/CUB_200_2011/part_segmentations/
 ```
 
-Waterbirds: ```https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz```
+The Waterbirds benchmark for evaluation can be found at: ```https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz```
 
 #### Out of Distribution Data (SUB Benchmark)
 
