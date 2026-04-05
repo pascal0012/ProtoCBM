@@ -42,14 +42,13 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=
             preds, similarity_scores, attention_maps = model(inputs, attr_labels)
 
             wrapped_model = WrapperProtoCBM(model, attr_labels=attr_labels)
-            preds, similarity_scores, attention_maps = model(inputs, attr_labels)
-
-            wrapped_model = WrapperProtoCBM(model, attr_labels=attr_labels)
 
             attribute_maps = torch.ones((inputs.shape[0], args.n_attributes, 8, 8))
             for target in range(args.n_attributes):
                 current_cam = calculate_cam(wrapped_model, inputs, attr_labels, target=target)
-                attribute_maps[:, target] = current_cam[:, 0, :, :]
+                attribute_maps[:, target] = current_cam[:, 0, :, :].detach().cpu()
+                del current_cam
+                torch.cuda.empty_cache()
 
             return preds, similarity_scores, attribute_maps
 
@@ -68,7 +67,9 @@ def get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=
             for target in range(args.n_attributes):
                 wrapped_model = WrapperCUB(model, out_index=target, is_independent=is_independent)
                 current_cam = calculate_cam(wrapped_model, inputs, attr_labels, target=0)
-                attribute_maps[:, target] = current_cam[:, 0, :, :]
+                attribute_maps[:, target] = current_cam[:, 0, :, :].detach().cpu()
+                del current_cam
+                torch.cuda.empty_cache()
 
             return class_pred, attributes, attribute_maps
 
@@ -90,6 +91,7 @@ def get_protomod_attention(attention_maps):
     return (attention_maps - att_min) / (att_max - att_min + 1e-7)
 
 
+@torch._dynamo.disable
 def calculate_cam(
     wrapped_model: nn.Module,
     input_im: torch.Tensor,
