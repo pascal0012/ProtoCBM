@@ -10,11 +10,11 @@ IoU_threshold: 0.5
 plot_curve: false
 use_argmax: true
 
-log_dir: outputs/ProtoCBM-Eval
-data_dir: data/CUB_200_2011
-split_dir: data/CUB_processed/class_attr_data_10/test.pkl
+log_dir: /home/ms66gide/ProtoCBM/outputs/ProtoCBM-VIZ
+data_dir: /home/ms66gide/data/CUB_200_2011
+split_dir: /home/ms66gide/data/CUB_processed/class_attr_data_10/test.pkl
 dataset: cub
-vis_every_n: 10
+vis_every_n: 2
 seed: 1
 
 # checkpoint: outputs/ProtoCBM/models/best_model_1.pth
@@ -26,7 +26,7 @@ sub_data_dir: data/SUB
 sub_limit: null
 
 
-batch_size: 64
+batch_size: 32
 use_aux: false
 
 backbone: inception

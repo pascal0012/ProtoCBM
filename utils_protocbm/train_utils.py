@@ -107,6 +107,7 @@ def prepare_model(
     if load_weights:
         path = _resolve_weights_path(args)
         state_dict = torch.load(path, weights_only=False, map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        #state_dict = torch.load(path, weights_only=False, map_location="cpu")
         state_dict = _clean_state_dict(state_dict, args, training)
         model.load_state_dict(state_dict, strict=False)
 
@@ -200,10 +201,15 @@ def model_by_mode(args: Namespace) -> nn.Module:
             args.checkpoint,
             map_location="cuda" if torch.cuda.is_available() else "cpu",
         )
+
+        #loaded = torch.load(args.checkpoint, map_location="cpu")
+        
         # Handle case where full model was saved instead of just state_dict
         if hasattr(loaded, "state_dict"):
             loaded = loaded.state_dict()
         model.load_state_dict(loaded, strict=False)
+
+        #model = model.to("cuda" if torch.cuda.is_available() else "cpu")
         print("Continuing with checkpoint:", args.checkpoint)
 
     return model

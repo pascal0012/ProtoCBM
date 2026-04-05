@@ -10,17 +10,19 @@ IoU_threshold: 0.5
 plot_curve: false
 use_argmax: true
 
-log_dir: outputs/Inspection/Independent
-data_dir: data/CUB_200_2011
-split_dir: data/CUB_processed/class_attr_data_10/test.pkl
+log_dir: /home/ms66gide/outputs/Inspection/Waterbirds
+data_dir: /home/ms66gide/data/CUB_200_2011
+split_dir: /home/ms66gide/data/CUB_processed/class_attr_data_10/test.pkl
 
-dataset: cub
-vis_every_n: 10
+dataset: waterbirds
+vis_every_n: 100
 seed: 1
 
 # Independent model checkpoints
-xc_checkpoint: weights/protoCBM-models/independent/xc_sigmoid.pth
-cy_checkpoint: weights/protoCBM-models/independent/cy_sigmoid.pth
+xc_checkpoint: /home/ms66gide/protocbm_model/xc_sigmoid.pth
+cy_checkpoint: /home/ms66gide/protocbm_model/cy_sigmoid.pth
+
+save_activations: true
 
 # SUB Dataset settings
 sub_data_dir: data/SUB

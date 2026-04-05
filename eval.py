@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
+#for activation analysing
+import h5py
 
 from localization.part_seg_iou import compute_IoU_to_seg_masks, compute_mIoU_statistics
 from localization.visualise import (
@@ -127,6 +129,14 @@ def eval(args):
                 scores_w = scores[water_mask]
                 attr_w   = attr_labels[water_mask]
 
+                if args.save_activations:
+                    with h5py.File(args.save_act_name_water, "a") as f:
+                        f[f"epoch_{data_idx}/activations"] = scores_w.cpu().numpy()
+                        f[f"epoch_{data_idx}/activation_labels"] = attr_w.cpu().numpy()
+
+                        f[f"epoch_{data_idx}/preds"] = pred_w.cpu().numpy()
+                        f[f"epoch_{data_idx}/class_labels"] = labels_w.cpu().numpy()
+
                 # Calculate accuracies for waterbirds
                 if pred_w.size(0) > 0:
                     class_acc_w = accuracy(pred_w, labels_w, topk=(1,))
@@ -140,6 +150,14 @@ def eval(args):
                 labels_l = labels[land_mask]
                 scores_l = scores[land_mask]
                 attr_l   = attr_labels[land_mask]
+
+                if args.save_activations:
+                    with h5py.File(args.save_act_name_land, "a") as f:
+                        f[f"epoch_{data_idx}/activations"] = scores_l.cpu().numpy()
+                        f[f"epoch_{data_idx}/activation_labels"] = attr_l.cpu().numpy()
+
+                        f[f"epoch_{data_idx}/preds"] = pred_l.cpu().numpy()
+                        f[f"epoch_{data_idx}/class_labels"] = labels_l.cpu().numpy()
 
                 # Calculate accuracies for landbirds
                 if pred_l.size(0) > 0:
@@ -252,6 +270,7 @@ if __name__ == '__main__':
 
     args = gather_args()
 
+
     # Create out folder for any visualizations / eval outputs
     out_folder_path = os.path.join(args.log_dir, f"{args.dataset}_visualization_{args.saliency_method}")
     os.makedirs(out_folder_path, exist_ok=True)
@@ -260,6 +279,16 @@ if __name__ == '__main__':
     path_to_output_txt = os.path.join(args.out_dir_part_seg, "eval.txt")
     print(f"Writing outputs into {path_to_output_txt}.")
     sys.stdout = open(path_to_output_txt, 'a')
+
+    #just for anaylsis
+    if getattr(args, "save_activations", None) is not None and getattr(args, "save_activations") == True:
+        #args.save_activations = True
+        args.save_act_name_water = os.path.join(args.out_dir_part_seg, "attribute_and_predictions_waterbirds.h5")
+        args.save_act_name_land = os.path.join(args.out_dir_part_seg, "attribute_and_predictions_landbirds.h5")
+    
+        print(f"Saving activations and predictions per epoch of model to {args.out_dir_part_seg}")
+    else:
+        args.save_activations = False
 
     # Print all args
     for k, v in vars(args).items():
