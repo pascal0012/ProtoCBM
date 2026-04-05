@@ -29,7 +29,7 @@ class resnet_proto_IoU(nn.Module):
         num_fc = 150
         resnet.fc = nn.Linear(num_ftrs, num_fc)
 
-        state_dict = torch.load(resnet_path)
+        state_dict = torch.load(resnet_path, weights_only=False)
         resnet.load_state_dict(state_dict)
 
         modules = list(resnet.children())[:-1]
