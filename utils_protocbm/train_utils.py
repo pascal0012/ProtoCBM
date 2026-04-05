@@ -198,6 +198,7 @@ def model_by_mode(args: Namespace) -> nn.Module:
     if bool(getattr(args, "checkpoint", False)):
         loaded = torch.load(
             args.checkpoint,
+            weights_only=False,
             map_location="cuda" if torch.cuda.is_available() else "cpu",
         )
         # Handle case where full model was saved instead of just state_dict
