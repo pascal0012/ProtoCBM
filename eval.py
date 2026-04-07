@@ -34,6 +34,7 @@ def eval(args):
 
     #whether training mode is independent
     is_independent = getattr(args, "mode", None) == "independent"
+    is_cem = getattr(args, "model_name", None) == "cem"
 
     # Create the model(s) and load weights
     model, device, cy_model = create_model_for_eval(args)
@@ -83,9 +84,14 @@ def eval(args):
             # attr_labels = torch.stack(attr_labels).t()  # N x A
             attr_labels = torch.stack(attr_labels, dim=1).float().to(device)
 
-            # Pass through model, get model prediction and saliency map per attribute
-            pred, scores, saliency_maps = get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=attr_labels)
-            saliency_maps = saliency_maps.to(device)
+            # Pass through model, get model prediction and concept scores.
+            # CEM has no spatial saliency maps, so localization is skipped below.
+            if is_cem:
+                pred, scores, _ = model(inputs, attr_labels)
+                saliency_maps = None
+            else:
+                pred, scores, saliency_maps = get_saliency_map_and_scores_and_prediction(model, inputs, args, attr_labels=attr_labels)
+                saliency_maps = saliency_maps.to(device)
 
             # Calculate classification accuracy
             # For independent mode: chain XC concept scores through CY classifier.
@@ -148,73 +154,75 @@ def eval(args):
                     attr_acc_l = binary_accuracy(scores_l, attr_l)
                     attr_acc_meter_land.update(attr_acc_l, pred_l.size(0))
             
-            # Compute localization accuracy and collect into our collector
-            predicted_coords, dists, _, _ = compute_localization_distance(
-                scores, 
-                saliency_maps, 
-                part_bbs, 
-                part_gts,
-                loader.dataset.part_dict,
-                loader.dataset.map_part_to_attr_loc_acc, 
-                loc_acc_collector, img_size=img_size,
-                use_argmax=args.use_argmax
-            )
-
-            # Compute IoU between part segmentation masks and our saliency maps, for each attribute
-            # Map out unmapped attributes from the saliency mask
-            iou_scores, spr, cpr, saliency_maps_upsampled, seg_masks_per_attribute = compute_IoU_to_seg_masks(
-                saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, scores[:, unmatched_attr_mask]
-            )
-            seg_loc_meter.update(spr, cpr)
-
-            # Compute curve statistics
-            if args.plot_curve:
-                for i, t in enumerate(thresholds):
-                    _, tspr, tcpr, _, _ = compute_IoU_to_seg_masks(
-                        saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, scores, keep_threshold=t
-                    )
-                    threshold_ious[i] += tspr
-                    threshold_counts[i] += tcpr
-
-            # Visualise part segmentations with saliency
-            if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
-                # Always visualize the first image in each batch for consistency
-                batch_idx = 0
-
-                #area-based localization viz
-                visualise_part_segmentations(
-                    inputs, saliency_maps_upsampled, seg_masks_per_attribute,
-                    attribute_names, iou_scores,
-                    batch_idx=batch_idx,
-                    source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg, 
-                    preds=torch.sigmoid(scores)
-                )   
-                #distance-based localization viz
-                visualize_keypoint_distances(part_gts,
-                                             inputs,
-                                             #source_paths,
-                                             predicted_coords,
-                                             dists,
-                                             data_idx,
-                                             list(loader.dataset.part_dict.values()),
-                                             batch_idx=batch_idx,
-                                             t_mean=transform_mean,
-                                             t_std=transform_std,
-                                             save_path=args.out_dir_part_seg
+            if not is_cem:
+                # Compute localization accuracy and collect into our collector
+                predicted_coords, dists, _, _ = compute_localization_distance(
+                    scores,
+                    saliency_maps,
+                    part_bbs,
+                    part_gts,
+                    loader.dataset.part_dict,
+                    loader.dataset.map_part_to_attr_loc_acc,
+                    loc_acc_collector, img_size=img_size,
+                    use_argmax=args.use_argmax
                 )
 
-    # Compute statistics over all batches
-    seg_loc_meter.compute(map_attr_id_to_part_seg_group, verbose=True)
+                # Compute IoU between part segmentation masks and our saliency maps, for each attribute
+                # Map out unmapped attributes from the saliency mask
+                iou_scores, spr, cpr, saliency_maps_upsampled, seg_masks_per_attribute = compute_IoU_to_seg_masks(
+                    saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, scores[:, unmatched_attr_mask]
+                )
+                seg_loc_meter.update(spr, cpr)
 
-    if args.plot_curve:
-        #stats for curve
-        threshold_accs = [compute_mIoU_statistics(threshold_ious[i], threshold_counts[i], attribute_names, map_attr_id_to_part_seg_group, verbose=False) for i in range(len(thresholds))]
-        plot_threshold_curve(thresholds, threshold_accs, args.out_dir_part_seg)
+                # Compute curve statistics
+                if args.plot_curve:
+                    for i, t in enumerate(thresholds):
+                        _, tspr, tcpr, _, _ = compute_IoU_to_seg_masks(
+                            saliency_maps[:, unmatched_attr_mask], part_seg_masks, map_attr_id_to_part_seg_group, scores, keep_threshold=t
+                        )
+                        threshold_ious[i] += tspr
+                        threshold_counts[i] += tcpr
 
+                # Visualise part segmentations with saliency
+                if args.vis_every_n > 0 and data_idx % args.vis_every_n == 0:
+                    # Always visualize the first image in each batch for consistency
+                    batch_idx = 0
 
-    # Compute part localization statistics, considering our grouping of attributes to groups.
-    #calculate_average_partwise_localization_accuracy(loc_acc_collector, MAP_PART_SEG_GROUPS_TO_CUB_GROUPS, IoU_thr=args.IoU_threshold)
-    calculate_average_partwise_localization_distance(loc_acc_collector, MAP_RESULT_GROUPS_TO_CUB_GROUPS)
+                    #area-based localization viz
+                    visualise_part_segmentations(
+                        inputs, saliency_maps_upsampled, seg_masks_per_attribute,
+                        attribute_names, iou_scores,
+                        batch_idx=batch_idx,
+                        source_paths=source_paths, t_mean=transform_mean, t_std=transform_std, save_path=args.out_dir_part_seg,
+                        preds=torch.sigmoid(scores)
+                    )
+                    #distance-based localization viz
+                    visualize_keypoint_distances(part_gts,
+                                                 inputs,
+                                                 #source_paths,
+                                                 predicted_coords,
+                                                 dists,
+                                                 data_idx,
+                                                 list(loader.dataset.part_dict.values()),
+                                                 batch_idx=batch_idx,
+                                                 t_mean=transform_mean,
+                                                 t_std=transform_std,
+                                                 save_path=args.out_dir_part_seg
+                    )
+
+    if not is_cem:
+        # Compute statistics over all batches
+        seg_loc_meter.compute(map_attr_id_to_part_seg_group, verbose=True)
+
+        if args.plot_curve:
+            #stats for curve
+            threshold_accs = [compute_mIoU_statistics(threshold_ious[i], threshold_counts[i], attribute_names, map_attr_id_to_part_seg_group, verbose=False) for i in range(len(thresholds))]
+            plot_threshold_curve(thresholds, threshold_accs, args.out_dir_part_seg)
+
+        # Compute part localization statistics, considering our grouping of attributes to groups.
+        calculate_average_partwise_localization_distance(loc_acc_collector, MAP_RESULT_GROUPS_TO_CUB_GROUPS)
+    else:
+        print("Skipping localization metrics for CEM (no spatial concept maps).")
 
     # Compute mean classification and attribute accuracies and print
     print("\n--------- ACCURACIES ---------\n")
