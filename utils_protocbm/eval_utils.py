@@ -52,7 +52,7 @@ def get_eval_transform_for_model(model: nn.Module, args: Namespace):
         for the part segmentation masks, as they must match the spatial transforms like Cropping,
         but not intensity ones (e.g. Normalize, Jitter).
     """
-    if args.model_name == "cbm" or args.model_name == "protocbm":
+    if args.model_name in {"cbm", "protocbm", "cem"}:
 
         if "dino" in args.backbone:
             transform_mean = (0.485, 0.456, 0.406)
@@ -121,7 +121,16 @@ def get_localization_loader(model: nn.Module, data_dir: str, split_dir: str, arg
     # Data management
     pkl_path = os.path.join(BASE_DIR, split_dir)
     data_dir = os.path.join(BASE_DIR, data_dir)
-    dataset = CUBLocalizationDataset(pkl_path, data_dir, img_size, transform, mask_transform, cbm_attributes="cbm" in args.model_name, dataset=args.dataset)
+    is_cbm_style = args.model_name in {"cbm", "protocbm", "cem"} or ("cbm" in args.model_name)
+    dataset = CUBLocalizationDataset(
+        pkl_path,
+        data_dir,
+        img_size,
+        transform,
+        mask_transform,
+        cbm_attributes=is_cbm_style,
+        dataset=args.dataset,
+    )
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,

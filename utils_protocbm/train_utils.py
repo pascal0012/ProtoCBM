@@ -213,12 +213,16 @@ def model_by_mode(args: Namespace) -> nn.Module:
 def create_model(args: Namespace) -> nn.Module:
     """Create and return a model based on the model_name in args.
 
-    Supports: protocbm, cbm, apn
+    Supports: protocbm, cbm, cem, apn
     """
     if args.model_name == "protocbm":
         model = model_by_mode(args)
     elif args.model_name == "cbm":
         model = model_by_mode(args)
+    elif args.model_name == "cem":
+        # CEM uses a dedicated architecture, not the generic CBM connector.
+        from models.cem import build_cem
+        model = build_cem(args)
     elif args.model_name == "apn":
         model = load_apn_baseline(args)
     else:
