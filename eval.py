@@ -154,7 +154,7 @@ def eval(args):
                     attr_acc_l = binary_accuracy(scores_l, attr_l)
                     attr_acc_meter_land.update(attr_acc_l, pred_l.size(0))
             
-            if not is_cem:
+            if not is_cem and not getattr(args, "skip_localization", False):
                 # Compute localization accuracy and collect into our collector
                 predicted_coords, dists, _, _ = compute_localization_distance(
                     scores,
@@ -210,7 +210,7 @@ def eval(args):
                                                  save_path=args.out_dir_part_seg
                     )
 
-    if not is_cem:
+    if not is_cem and not getattr(args, "skip_localization", False):
         # Compute statistics over all batches
         seg_loc_meter.compute(map_attr_id_to_part_seg_group, verbose=True)
 
@@ -267,7 +267,9 @@ if __name__ == '__main__':
 
     path_to_output_txt = os.path.join(args.out_dir_part_seg, "eval.txt")
     print(f"Writing outputs into {path_to_output_txt}.")
-    sys.stdout = open(path_to_output_txt, 'a')
+    _eval_txt_fp = open(path_to_output_txt, 'a', buffering=1)
+    sys.stdout = _eval_txt_fp
+    sys.stderr = _eval_txt_fp
 
     # Print all args
     for k, v in vars(args).items():
