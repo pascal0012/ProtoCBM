@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from models.backbones import Inception3, DINO
 from models.components import MLP
-from models.concept_mapper import CBMMapper, ProtoMod, DebugAuxMapperCBM, LCBMMapper
+from models.concept_mapper import CBMMapper, ProtoMod, DebugAuxMapperCBM
 from models.model_connector import ModelConnector
 
 from cub.config import N_CLASSES
@@ -127,6 +127,13 @@ def backbone_by_name(args: Namespace) -> Inception3:
             args.backbone_freeze,
             299,
         )
+    if args.backbone == "resnet50":
+        from models.backbones import ResNet50
+        return ResNet50(
+            pretrained=args.backbone_pretrained,
+            freeze=args.backbone_freeze,
+            input_img_size=224,
+        )
     if "dino" in args.backbone:
         return DINO(
             args.use_aux,
@@ -149,16 +156,5 @@ def concept_mapper_by_name(
             return DebugAuxMapperCBM(input_channel_dim, args.expand_dim)
         else:
             return CBMMapper(input_channel_dim, args.expand_dim, is_aux)
-    elif args.concept_mapper == "lcbm":
-        k1 = getattr(args, "k1", 3)
-        k2 = getattr(args, "k2", 2)
-        return LCBMMapper(
-            channel_dim=input_channel_dim,
-            num_concepts=args.n_attributes,
-            expand_dim=args.expand_dim,
-            k1=k1,
-            k2=k2,
-            num_classes=N_CLASSES
-        )
     else:
         raise ValueError(f"Unknown concept mapper name: {args.concept_mapper}")
