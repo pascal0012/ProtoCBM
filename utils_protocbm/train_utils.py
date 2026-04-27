@@ -197,7 +197,7 @@ def model_by_mode(args: Namespace) -> nn.Module:
 
     if bool(getattr(args, "checkpoint", False)):
         loaded = torch.load(
-            args.checkpoint,
+            args.checkpoint,    
             weights_only=False,
             map_location="cuda" if torch.cuda.is_available() else "cpu",
         )
@@ -213,14 +213,13 @@ def model_by_mode(args: Namespace) -> nn.Module:
 def create_model(args: Namespace) -> nn.Module:
     """Create and return a model based on the model_name in args.
 
-    Supports: protocbm, cbm, cem, apn
+    Supports: protocbm, cbm, apn
     """
     if args.model_name == "protocbm":
         model = model_by_mode(args)
     elif args.model_name == "cbm":
         model = model_by_mode(args)
     elif args.model_name == "cem":
-        # CEM uses a dedicated architecture, not the generic CBM connector.
         from models.cem import build_cem
         model = build_cem(args)
     elif args.model_name == "apn":
