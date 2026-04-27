@@ -121,16 +121,22 @@ class ModelConnector(nn.Module):
 
         return (output, sim_scores, maps)
 
-    def forward_featuresLCBM(self, features, attr_labels=None, aux_forward=False):
+    def forward_featuresLCBM(self, features, attr_labels=None, aux_forward=False,
+                             clip_scores=None):
         """Forward for LCBM.
 
         Returns ``(class_logits, concept_scores, attention_maps, aux_logits,
         M0, M0_prime)``. ``M0`` is kept attached to the graph so that the
         training loop can compute gradients of the classification loss wrt
         the feature map for the localization loss.
+
+        Args:
+            features: [B, C, H, W] backbone feature map.
+            clip_scores: [B, HW, K] CLIP patch-concept similarities S. Drives
+                the top-K1 per-patch concept mask in the mapper.
         """
         mapper = self.aux_concept_mapper if aux_forward else self.concept_mapper
-        mapper_out = mapper(features)
+        mapper_out = mapper(features, clip_scores=clip_scores)
 
         concept_scores = mapper_out['concept_scores']
         aux_logits = mapper_out['aux_logits']

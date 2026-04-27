@@ -123,8 +123,8 @@ class LCBMMapper(nn.Module):
     Implements prototype learning with CLIP guidance for concept localization.
     """
     
-    def __init__(self, channel_dim: int = 2048, num_concepts: int = 112, 
-                 expand_dim: int = 0, k1: int = 3, k2: int = 2, num_classes: int = 200):
+    def __init__(self, channel_dim: int = 2048, num_concepts: int = 112,
+                 expand_dim: int = 0, k1: int = 7, k2: int = 3, num_classes: int = 200):
         super(LCBMMapper, self).__init__()
         
         self.channel_dim = channel_dim
