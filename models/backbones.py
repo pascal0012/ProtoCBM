@@ -220,9 +220,52 @@ class DINO(nn.Module):
         
         # Remove the CLS token, turn from [B, N, C] into [B, C, H, W]
         B, _, C = x.shape
-        out = x[:, 1:] 
+        out = x[:, 1:]
         out = out.view(B, self.output_map_size, self.output_map_size, C)  # Split token dim into grid
         out = out.permute(0, 3, 1, 2)  # Re-order to match CNN-based output shape
         if self.training and self.aux_logits:
             return out, aux_out
         return out
+
+
+class ResNet50(nn.Module):
+    """ResNet50 backbone returning the last conv feature map.
+
+    For 224x224 input the feature map is [B, 2048, 7, 7] (stride 32).
+    """
+
+    def __init__(self, pretrained: bool = True, freeze: bool = False,
+                 input_img_size: int = 224):
+        super().__init__()
+        from torchvision.models import resnet50, ResNet50_Weights
+        weights = ResNet50_Weights.IMAGENET1K_V2 if pretrained else None
+        net = resnet50(weights=weights)
+        # Keep everything up to and including layer4.
+        self.stem = nn.Sequential(net.conv1, net.bn1, net.relu, net.maxpool)
+        self.layer1 = net.layer1
+        self.layer2 = net.layer2
+        self.layer3 = net.layer3
+        self.layer4 = net.layer4
+
+        self.final_channel_dim = 2048
+        self.image_size = input_img_size
+        self.output_map_size = 7
+
+        # Aux head metadata kept to match ModelConnector expectations. ResNet50
+        # has no natural aux branch, so we reuse the main head by returning it
+        # twice when aux_logits are requested.
+        self.aux_logits = False
+        self.aux_final_channel_dim = self.final_channel_dim
+        self.aux_output_map_size = self.output_map_size
+
+        if freeze:
+            for p in self.parameters():
+                p.requires_grad = False
+
+    def forward(self, x):
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        return x
