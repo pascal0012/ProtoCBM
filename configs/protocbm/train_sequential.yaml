@@ -1,0 +1,12 @@
+base_config: configs/protocbm/protocbm.yaml
+mode: XC->CY
+log_dir: outputs/protocbm/sequential
+
+lr: 0.01
+
+val_metric:
+  - attr_acc
+
+loss_weight_attribute_reg: 1
+loss_weight_map_compactness: 0.0038
+loss_weight_attribute_decorrelation: 2e-05
