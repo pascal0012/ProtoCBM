@@ -21,4 +21,8 @@ dependencies:
       - pyyaml==6.0.3
       - tqdm==4.67.1
       - captum==0.8.0
+      - transformers>=4.49
+      - accelerate>=0.34
+      - Pillow>=10
+      - qwen-vl-utils[decord]==0.0.8
 prefix: /home/sb76faku/.conda/envs/protocbm
