@@ -48,8 +48,6 @@ class ModelConnector(nn.Module):
             return self.forward_featuresCBM
         elif name == "ProtoMod":
             return self.forward_featuresPROTO
-        elif name == "LCBMMapper":
-            return self.forward_featuresLCBM
         else:
             raise ValueError(f"Unknown forward function name: {name}")
 
@@ -120,47 +118,6 @@ class ModelConnector(nn.Module):
 
 
         return (output, sim_scores, maps)
-
-    def forward_featuresLCBM(self, features, attr_labels=None, aux_forward=False,
-                             clip_scores=None):
-        """Forward for LCBM.
-
-        Returns ``(class_logits, concept_scores, attention_maps, aux_logits,
-        M0, M0_prime)``. ``M0`` is kept attached to the graph so that the
-        training loop can compute gradients of the classification loss wrt
-        the feature map for the localization loss.
-
-        Args:
-            features: [B, C, H, W] backbone feature map.
-            clip_scores: [B, HW, K] CLIP patch-concept similarities S. Drives
-                the top-K1 per-patch concept mask in the mapper.
-        """
-        mapper = self.aux_concept_mapper if aux_forward else self.concept_mapper
-        mapper_out = mapper(features, clip_scores=clip_scores)
-
-        concept_scores = mapper_out['concept_scores']
-        aux_logits = mapper_out['aux_logits']
-        attention_maps = mapper_out['attention_maps']
-        M0 = mapper_out['M0']
-        M0_prime = mapper_out['M0_prime']
-
-        concept_scores_activated = self.concept_activation(concept_scores)
-
-        class_logits = None
-        if self.classifier is not None:
-            cls_input = concept_scores_activated
-            if self.mode == "CY":
-                cls_input = cls_input.detach()
-            class_logits = self.classifier(cls_input)
-
-        return (
-            class_logits,
-            concept_scores,
-            attention_maps,
-            aux_logits,
-            M0,
-            M0_prime,
-        )
 
     def forward(self, x, attr_labels):
 
