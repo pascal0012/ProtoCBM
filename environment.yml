@@ -25,4 +25,7 @@ dependencies:
       - accelerate>=0.34
       - Pillow>=10
       - qwen-vl-utils[decord]==0.0.8
+      # SEG-MIL-CBM offline pipeline
+      - open_clip_torch>=2.24
+      - segment-anything==1.0
 prefix: /home/sb76faku/.conda/envs/protocbm
