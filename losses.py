@@ -283,3 +283,40 @@ class LocalizationDistanceLoss(nn.Module):
             loss = (kl * valid_mask).sum() / n_valid
 
         return loss
+
+
+class SegMILLoss(nn.Module):
+    """SEG-MIL-CBM loss: CE on class logits + lambda * cosine alignment loss
+    between predicted segment concept activations and CLIP-derived per-segment
+    concept similarity vectors.
+    """
+
+    def __init__(self, lambda_concept: float = 0.1):
+        super().__init__()
+        self.lambda_concept = lambda_concept
+        self.ce = nn.CrossEntropyLoss()
+
+    def forward(
+        self,
+        logits: torch.Tensor,            # [B, num_classes]
+        seg_concepts: torch.Tensor,      # [B, N_s, K] predicted
+        clip_concepts: torch.Tensor,     # [B, N_s, K] CLIP target
+        labels: torch.Tensor,            # [B]
+        valid: torch.Tensor | None = None,  # [B, N_s] bool
+    ):
+        cls_loss = self.ce(logits, labels)
+
+        pred = F.normalize(seg_concepts, dim=-1)
+        target = F.normalize(clip_concepts, dim=-1)
+        cos = (pred * target).sum(dim=-1)  # [B, N_s]
+        if valid is not None:
+            n = valid.sum().clamp_min(1)
+            concept_loss = -(cos * valid).sum() / n
+        else:
+            concept_loss = -cos.mean()
+
+        total = cls_loss + self.lambda_concept * concept_loss
+        return total, {
+            "cls": cls_loss.detach(),
+            "concept": concept_loss.detach(),
+        }
