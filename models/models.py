@@ -1,7 +1,6 @@
 from argparse import Namespace
 
 from torch import nn
-import torch
 
 import os
 import sys
